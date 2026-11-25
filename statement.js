@@ -4,8 +4,6 @@ const statementAssistant = (() => {
   const form = get('statement-form');
   const setup = get('statement-setup');
   const log = get('statement-log');
-  const codeField = get('statement-code-field');
-  const code = get('statement-code');
   const photo = get('statement-photo');
   const message = get('statement-message');
   const model = get('statement-model');
@@ -34,7 +32,6 @@ const statementAssistant = (() => {
     return '';
   })();
 
-  let accessToken = '';
   let transcript = [];
   let currentPhoto = '';
   let awaitingDetails = false;
@@ -84,11 +81,11 @@ const statementAssistant = (() => {
   }
 
   function setBusy(busy) {
-    for (const control of [send, photo, message, code, model]) control.disabled = busy;
+    for (const control of [send, photo, message, model]) control.disabled = busy;
     progress.textContent = busy ? 'Analisando o extrato…' : '';
   }
 
-  function newConversation(clearAccess = false) {
+  function newConversation() {
     conversation.abort();
     conversation = new AbortController();
     pending?.abort();
@@ -96,10 +93,8 @@ const statementAssistant = (() => {
     transcript = [];
     currentPhoto = '';
     awaitingDetails = false;
-    if (clearAccess) accessToken = '';
     form.reset();
     setBusy(false);
-    codeField.hidden = Boolean(accessToken);
     log.replaceChildren();
     if (endpoint) addTurn('assistant', 'Anexe uma foto do extrato. Você também pode indicar o mês e o ano ou fazer perguntas sobre a leitura.');
   }
@@ -275,13 +270,6 @@ const statementAssistant = (() => {
       photo.focus();
       return;
     }
-    const token = accessToken || code.value.trim();
-    if (!token) {
-      addTurn('assistant', 'Informe o código de acesso à IA para enviar o extrato.', true);
-      code.focus();
-      return;
-    }
-
     const request = new AbortController();
     const timeout = setTimeout(() => request.abort(), 100000);
     pending = request;
@@ -293,16 +281,12 @@ const statementAssistant = (() => {
       const history = file ? [] : transcript.slice(-6);
       const response = await fetch(endpoint, {
         method: 'POST',
-        headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ image, mode, history, message: text, model: model.value, categories: expensesApp.categoryNames() }),
         credentials: 'omit',
         redirect: 'error',
         signal: request.signal
       });
-      if (response.status === 401) {
-        accessToken = '';
-        codeField.hidden = false;
-      }
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'O serviço de IA está indisponível.');
       if (pending !== request || request.signal.aborted) return;
@@ -321,9 +305,6 @@ const statementAssistant = (() => {
         }
       }
       if (pending !== request) return;
-      accessToken = token;
-      code.value = '';
-      codeField.hidden = true;
       currentPhoto = image;
       awaitingDetails = result.status === 'clarify';
       const answer = result.reply || (imported ? 'Leitura concluída.' : 'Confira a foto e tente novamente.');
@@ -363,7 +344,7 @@ const statementAssistant = (() => {
 
   return {
     close() {
-      newConversation(true);
+      newConversation();
       panel.open = false;
       pastedImport.abort();
       pastedImport = new AbortController();
