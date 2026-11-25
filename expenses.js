@@ -17,10 +17,14 @@ const expensesApp = (() => {
   const account = get('account');
   const viewTitle = get('view-title');
   const navButtons = document.querySelectorAll('.app-nav [data-view]');
-  const dashboardView = get('dashboard-view');
-  const expensesView = get('expenses-view');
+  const views = {
+    dashboard: { title: 'Dashboard', panel: get('dashboard-view') },
+    expenses: { title: 'Despesas', panel: get('expenses-view') },
+    advisor: { title: 'Assessor', panel: get('advisor-view') }
+  };
   const newExpense = get('new-expense');
   const period = get('period');
+  const viewControls = get('view-controls');
   const storageError = get('storage-error');
   const categoryFilter = get('category-filter');
   const expenseForm = get('expense-form');
@@ -89,11 +93,10 @@ const expensesApp = (() => {
   }
 
   function showView(view, moveFocus = false) {
-    const isDashboard = view === 'dashboard';
-    dashboardView.hidden = !isDashboard;
-    expensesView.hidden = isDashboard;
-    newExpense.hidden = !isDashboard;
-    viewTitle.textContent = isDashboard ? 'Dashboard' : 'Despesas';
+    for (const [key, { panel }] of Object.entries(views)) panel.hidden = key !== view;
+    newExpense.hidden = view !== 'dashboard';
+    viewControls.hidden = view === 'advisor';
+    viewTitle.textContent = views[view].title;
     document.title = 'Despesas | ' + viewTitle.textContent;
     for (const button of navButtons) {
       if (button.dataset.view === view) {
@@ -102,6 +105,7 @@ const expensesApp = (() => {
         button.removeAttribute('aria-current');
       }
     }
+    if (view === 'advisor') advisorApp.open();
     if (moveFocus) viewTitle.focus();
   }
 
@@ -120,12 +124,16 @@ const expensesApp = (() => {
     customCategory.required = adding;
   }
 
+  function formatMonth(month) {
+    return monthLabel.format(asUTC(month + '-01'));
+  }
+
   function syncFilters(selectedPeriod, selectedCategory) {
     const current = localDate().slice(0, 7);
     const months = new Set([current, ...expenses.map((expense) => expense.date.slice(0, 7))]);
     if (selectedPeriod && selectedPeriod !== 'all') months.add(selectedPeriod);
     const monthOptions = [...months].sort().reverse().map((month) =>
-      new Option(monthLabel.format(asUTC(month + '-01')), month)
+      new Option(formatMonth(month), month)
     );
     period.replaceChildren(...monthOptions, new Option('Todos os meses', 'all'));
     period.value = selectedPeriod || current;
@@ -394,19 +402,26 @@ const expensesApp = (() => {
 
   function sameExpense(candidate, known, reference) {
     const original = known.statementSource;
-    if (reference && original?.reference) {
-      return reference === original.reference
-        && (candidate.cents === known.cents || candidate.cents === original.cents);
-    }
-    const name = normalizedWords(candidate.description);
+    const name = comparableDescription(candidate.description);
     return [known, original].some((row) => {
-      if (!row || row.date !== candidate.date || row.cents !== candidate.cents) return false;
-      const knownName = normalizedWords(row.description);
+      if (!row || row.cents !== candidate.cents) return false;
+      const daysApart = Math.abs(asUTC(row.date) - asUTC(candidate.date)) / 86400000;
+      if (reference && reference === original?.reference && daysApart <= 3) return true;
+      if (daysApart > 1) return false;
+      const knownName = comparableDescription(row.description);
       if (!name || !knownName) return false;
       if (name.replaceAll(' ', '') === knownName.replaceAll(' ', '')) return true;
+      if (daysApart !== 0) return false;
       const [shorter, longer] = [name, knownName].sort((first, second) => first.length - second.length);
       return shorter.length >= 5 && (' ' + longer + ' ').includes(' ' + shorter + ' ');
     });
+  }
+
+  function comparableDescription(text) {
+    const normalized = normalizedWords(text);
+    // Bancos e leitores podem incluir o tipo de pagamento no nome da compra.
+    return normalized.replace(/\b(?:pix|debito|compra|pagamento|cartao|efetuado|realizado)\b/g, ' ')
+      .replace(/\s+/g, ' ').trim().replace(/^(?:(?:p|para|de|via|em|no|na|ao) )+/, '') || normalized;
   }
 
   async function importStatement(rows, { force = false, signal } = {}) {
@@ -454,6 +469,10 @@ const expensesApp = (() => {
   return {
     categoryNames,
     importStatement,
+    readExpenses,
+    formatMonth,
+    localDate,
+    normalizedWords,
     formatExpense(expense) {
       return expense.description + ' · ' + dateLabel.format(asUTC(expense.date)) + ' · ' + money.format(expense.cents / 100);
     },

@@ -23,7 +23,7 @@ jobs:
           STATEMENT_ENDPOINT: ${{ vars.STATEMENT_ENDPOINT }}
         run: |
           mkdir _site
-          cp index.html styles.css app.css statement.css login.js expenses.js statement.js statement-config.js _site/
+          cp index.html styles.css app.css statement.css login.js expenses.js statement.js advisor.js statement-config.js _site/
           if [ -n "$STATEMENT_ENDPOINT" ]; then
             node --input-type=module <<'NODE'
           import { writeFileSync } from 'node:fs';

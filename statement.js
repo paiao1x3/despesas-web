@@ -343,6 +343,7 @@ const statementAssistant = (() => {
   newConversation();
 
   return {
+    endpoint,
     close() {
       newConversation();
       panel.open = false;

@@ -141,7 +141,24 @@
 .statement-actions span { color: var(--muted); font-size: .875rem; }
 .app button:disabled { opacity: .65; cursor: default; }
 
+.advisor-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0 1.25rem;
+}
+
+.advisor-period { min-width: min(100%, 13rem); margin-bottom: 1rem; }
+.advisor-period label { font-size: .9375rem; }
+.advisor-log { min-height: 10rem; }
+.advisor-prompts { padding: .5rem; }
+.advisor-prompts p { margin: 0 0 .75rem; }
+.advisor-prompts button { margin: 0 .25rem .4rem 0; }
+.advisor-history-note { margin: .75rem 0 0; color: var(--muted); font-size: .875rem; }
+
 @media (max-width: 43rem) {
   .statement-form { grid-template-columns: minmax(0, 1fr); }
   .statement-log { padding: .625rem; }
+  .advisor-log { max-height: 27svh; }
 }

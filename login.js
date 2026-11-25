@@ -24,6 +24,7 @@ function showAccount(signedIn, moveFocus = false) {
     expensesApp.open();
   } else {
     statementAssistant.close();
+    advisorApp.close();
     document.title = 'Despesas | Login';
   }
 

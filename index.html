@@ -10,6 +10,7 @@
   <script src="expenses.js" defer></script>
   <script src="statement-config.js" defer></script>
   <script src="statement.js" defer></script>
+  <script src="advisor.js" defer></script>
   <script src="login.js" defer></script>
 </head>
 <body>
@@ -62,6 +63,7 @@
         <nav class="app-nav" aria-label="Navegação principal">
           <button type="button" data-view="dashboard" aria-controls="dashboard-view" aria-current="page">Dashboard</button>
           <button type="button" data-view="expenses" aria-controls="expenses-view">Despesas</button>
+          <button type="button" data-view="advisor" aria-controls="advisor-view">Assessor</button>
         </nav>
         <button class="logout-button" id="logout" type="button">Sair</button>
       </div>
@@ -70,7 +72,7 @@
     <div class="app-content">
       <div class="view-header">
         <h1 id="view-title" tabindex="-1">Dashboard</h1>
-        <div class="view-controls">
+        <div class="view-controls" id="view-controls">
           <div class="period-filter">
             <label for="period">Período</label>
             <select id="period"></select>
@@ -200,6 +202,38 @@
             <p class="empty-state" id="expenses-empty">Nenhuma despesa neste período.</p>
           </section>
         </div>
+      </section>
+      <section class="advisor-panel report-panel" id="advisor-view" aria-labelledby="view-title" hidden>
+        <div class="advisor-header">
+          <div>
+            <h2>Converse sobre seus gastos</h2>
+            <p class="statement-notice">O assessor usa os lançamentos deste navegador e envia um resumo à OpenAI a cada pergunta.</p>
+          </div>
+          <div class="field advisor-period">
+            <label for="advisor-period">Período da análise</label>
+            <select id="advisor-period"></select>
+          </div>
+        </div>
+        <p class="storage-error" id="advisor-setup" hidden>O serviço de IA ainda precisa ser configurado.</p>
+        <div class="statement-log advisor-log" id="advisor-log" role="log" aria-label="Conversa com o assessor">
+          <div class="advisor-prompts" id="advisor-prompts">
+            <p>O que você quer entender sobre suas despesas?</p>
+            <button class="quiet-button chatgpt-import-control" type="button" data-question="Compare meus gastos mês a mês.">Comparar meses</button>
+            <button class="quiet-button chatgpt-import-control" type="button" data-question="Em quais categorias mais gastei no período?">Ver onde mais gastei</button>
+          </div>
+        </div>
+        <form class="statement-form" id="advisor-form" method="post">
+          <div class="field">
+            <label for="advisor-question">Sua pergunta</label>
+            <textarea id="advisor-question" rows="2" maxlength="600" placeholder="Ex.: Quanto gastei com alimentação no mês passado?" required></textarea>
+          </div>
+          <div class="form-actions statement-actions">
+            <button class="primary-button app-action" id="advisor-send" type="submit">Perguntar</button>
+            <button class="quiet-button" id="advisor-clear" type="button" hidden>Limpar conversa</button>
+            <span id="advisor-status" role="status"></span>
+          </div>
+        </form>
+        <p class="advisor-history-note">Mostra as últimas 3 trocas. A IA recebe apenas as 2 anteriores.</p>
       </section>
     </div>
   </main>
