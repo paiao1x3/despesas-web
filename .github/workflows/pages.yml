@@ -1,0 +1,46 @@
+name: Publicar no GitHub Pages
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/configure-pages@v5
+      - name: Preparar arquivos do site
+        env:
+          STATEMENT_ENDPOINT: ${{ vars.STATEMENT_ENDPOINT }}
+        run: |
+          mkdir _site
+          cp index.html styles.css app.css statement.css login.js expenses.js statement.js statement-config.js _site/
+          if [ -n "$STATEMENT_ENDPOINT" ]; then
+            node --input-type=module <<'NODE'
+          import { writeFileSync } from 'node:fs';
+          const url = new URL(process.env.STATEMENT_ENDPOINT);
+          if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/api/statement' || url.search || url.hash) {
+            throw new Error('STATEMENT_ENDPOINT deve conter a URL HTTPS do Worker seguida de /api/statement.');
+          }
+          writeFileSync('_site/statement-config.js', 'const statementEndpoint = ' + JSON.stringify(url.href) + ';\n');
+          NODE
+          fi
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+      - uses: actions/deploy-pages@v4
+        id: deployment

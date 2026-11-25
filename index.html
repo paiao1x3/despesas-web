@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Despesas | Login</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="statement.css">
+  <script src="expenses.js" defer></script>
+  <script src="statement-config.js" defer></script>
+  <script src="statement.js" defer></script>
+  <script src="login.js" defer></script>
+</head>
+<body>
+  <main class="layout" id="login-page">
+    <div class="brand-panel">
+      <div class="brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span> Despesas</div>
+
+      <div class="illustration" aria-hidden="true">
+        <div class="orbit orbit-outer"></div>
+        <div class="orbit orbit-inner"></div>
+        <div class="receipt receipt-back"></div>
+        <div class="receipt receipt-front">
+          <div class="receipt-heading"><span></span><span></span></div>
+          <div class="receipt-line"></div>
+          <div class="receipt-chart"><i></i><i></i><i></i><i></i><i></i></div>
+          <div class="receipt-line"></div>
+          <div class="receipt-total"><span></span><span></span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="content-panel">
+      <section class="content" id="login" aria-labelledby="login-title">
+        <h1 id="login-title" tabindex="-1">Entrar</h1>
+        <p class="intro">Informe seu usuário e senha para acessar o sistema.</p>
+
+        <form id="login-form" method="post">
+          <div class="field">
+            <label for="username">Usuário</label>
+            <input id="username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+          </div>
+          <div class="field">
+            <label for="password">Senha</label>
+            <div class="password-field">
+              <input id="password" name="password" type="password" autocomplete="current-password" required>
+              <button class="password-toggle" id="password-toggle" type="button" aria-controls="password">Mostrar senha</button>
+            </div>
+          </div>
+          <p class="error" id="login-error" role="alert"></p>
+          <button class="primary-button" type="submit">Entrar</button>
+        </form>
+      </section>
+    </div>
+  </main>
+
+  <main class="app" id="account" hidden>
+    <header class="app-header">
+      <div class="app-header-inner">
+        <div class="app-brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span> Despesas</div>
+        <nav class="app-nav" aria-label="Navegação principal">
+          <button type="button" data-view="dashboard" aria-controls="dashboard-view" aria-current="page">Dashboard</button>
+          <button type="button" data-view="expenses" aria-controls="expenses-view">Despesas</button>
+        </nav>
+        <button class="logout-button" id="logout" type="button">Sair</button>
+      </div>
+    </header>
+
+    <div class="app-content">
+      <div class="view-header">
+        <h1 id="view-title" tabindex="-1">Dashboard</h1>
+        <div class="view-controls">
+          <div class="period-filter">
+            <label for="period">Período</label>
+            <select id="period"></select>
+          </div>
+          <button class="primary-button app-action" id="new-expense" type="button">Nova despesa</button>
+        </div>
+      </div>
+      <p class="storage-error" id="storage-error" role="alert" hidden></p>
+
+      <section id="dashboard-view" aria-labelledby="view-title">
+        <dl class="summary">
+          <div><dt>Total de despesas</dt><dd id="total-spending">R$ 0,00</dd></div>
+          <div><dt>Lançamentos</dt><dd id="expense-count">0</dd></div>
+          <div><dt>Maior categoria</dt><dd id="top-category">—</dd></div>
+        </dl>
+        <div class="dashboard-grid">
+          <section class="report-panel" aria-labelledby="categories-title">
+            <h2 id="categories-title">Gastos por categoria</h2>
+            <ul class="category-list" id="category-list"></ul>
+            <p class="empty-state" id="categories-empty">Nenhuma despesa neste período. Use <strong>Nova despesa</strong> para registrar um gasto.</p>
+          </section>
+          <section class="report-panel" aria-labelledby="recent-title">
+            <h2 id="recent-title">Lançamentos recentes</h2>
+            <ul class="expense-list recent-list" id="recent-list"></ul>
+            <p class="empty-state" id="recent-empty">Os últimos lançamentos do período aparecem aqui.</p>
+          </section>
+        </div>
+      </section>
+
+      <section id="expenses-view" aria-labelledby="view-title" hidden>
+        <details class="report-panel statement-panel" id="statement-panel">
+          <summary><h2>Importar extrato com IA</h2></summary>
+          <p class="statement-notice">Ao enviar, a foto é analisada pela OpenAI. As despesas identificadas entram automaticamente e possíveis duplicatas ficam para revisão.</p>
+          <div class="statement-model-field">
+            <label for="statement-model">Modelo da OpenAI</label>
+            <select id="statement-model">
+              <option value="gpt-5.4-mini">GPT-5.4 mini</option>
+              <option value="gpt-6.2-sol">GPT-6.2 Sol</option>
+              <option value="gpt-6.2-astra">GPT-6.2 Astra</option>
+            </select>
+          </div>
+          <p class="storage-error" id="statement-setup" hidden>O serviço de IA ainda precisa ser configurado para receber fotos.</p>
+          <div class="statement-log" id="statement-log" role="log" aria-label="Conversa sobre o extrato"></div>
+          <form class="statement-form" id="statement-form" method="post" autocomplete="off">
+            <div class="field" id="statement-code-field">
+              <label for="statement-code">Código de acesso à IA</label>
+              <input type="password" id="statement-code" maxlength="256" autocomplete="off">
+            </div>
+            <div class="field">
+              <label for="statement-photo">Foto do extrato</label>
+              <input type="file" id="statement-photo" accept="image/jpeg,image/png,image/webp">
+              <small>JPG, PNG ou WebP de até 6 MB. Você pode recortar dados pessoais que estiverem fora dos lançamentos.</small>
+            </div>
+            <div class="field">
+              <label for="statement-message">Mensagem <span>(opcional com foto)</span></label>
+              <textarea id="statement-message" rows="2" maxlength="800" placeholder="Ex.: Este extrato é de novembro de 2026."></textarea>
+            </div>
+            <div class="form-actions statement-actions">
+              <button class="primary-button app-action" id="statement-send" type="submit">Enviar</button>
+              <button class="quiet-button" id="statement-clear" type="button">Nova conversa</button>
+              <span id="statement-progress" role="status"></span>
+            </div>
+          </form>
+        </details>
+        <div class="expenses-grid">
+          <section class="report-panel" aria-labelledby="expense-form-title">
+            <h2 id="expense-form-title">Registrar despesa</h2>
+            <form class="expense-form" id="expense-form" method="post">
+              <div class="field">
+                <label for="expense-description">Descrição</label>
+                <input id="expense-description" name="description" maxlength="100" placeholder="Ex.: Compras no mercado" required>
+              </div>
+              <div class="form-columns">
+                <div class="field">
+                  <label for="expense-amount">Valor em reais</label>
+                  <input id="expense-amount" name="amount" inputmode="decimal" maxlength="16" placeholder="0,00" required>
+                </div>
+                <div class="field">
+                  <label for="expense-date">Data</label>
+                  <input id="expense-date" name="date" type="date" min="1900-01-01" max="9999-12-31" required>
+                </div>
+              </div>
+              <div class="field">
+                <label for="expense-category">Categoria</label>
+                <select id="expense-category" name="category" required></select>
+              </div>
+              <div class="field" id="custom-category-field" hidden>
+                <label for="custom-category">Nome da nova categoria</label>
+                <input id="custom-category" name="custom-category" maxlength="40">
+              </div>
+              <div class="form-actions">
+                <button class="primary-button app-action" id="save-expense" type="submit">Salvar despesa</button>
+                <button class="quiet-button" id="cancel-edit" type="button" hidden>Cancelar</button>
+              </div>
+              <p class="form-status" id="expense-status" role="status"></p>
+            </form>
+          </section>
+          <section class="report-panel" aria-labelledby="expense-list-title">
+            <div class="records-header">
+              <h2 id="expense-list-title" tabindex="-1">Lançamentos</h2>
+              <div class="category-filter">
+                <label for="category-filter">Categoria</label>
+                <select id="category-filter"></select>
+              </div>
+            </div>
+            <ul class="expense-list" id="expense-list"></ul>
+            <p class="empty-state" id="expenses-empty">Nenhuma despesa neste período.</p>
+          </section>
+        </div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>
