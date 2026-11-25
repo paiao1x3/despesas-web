@@ -3,26 +3,21 @@ name: Publicar no GitHub Pages
 on:
   workflow_dispatch:
 
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
 concurrency:
   group: github-pages
   cancel-in-progress: false
 
 jobs:
-  publish:
+  package:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      contents: read
+      pages: read
     steps:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
       - name: Preparar arquivos do site
         env:
           STATEMENT_ENDPOINT: ${{ vars.STATEMENT_ENDPOINT }}
@@ -39,8 +34,20 @@ jobs:
           writeFileSync('_site/statement-config.js', 'const statementEndpoint = ' + JSON.stringify(url.href) + ';\n');
           NODE
           fi
-      - uses: actions/upload-pages-artifact@v4
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: _site
-      - uses: actions/deploy-pages@v4
+
+  publish:
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/deploy-pages@v5
         id: deployment
