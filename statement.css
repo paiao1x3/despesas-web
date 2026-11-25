@@ -44,6 +44,24 @@
 
 .statement-panel > .storage-error { margin-bottom: 0; }
 
+.chatgpt-import-actions span {
+  color: var(--muted);
+  font-size: .875rem;
+}
+
+.chatgpt-import-control {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding-inline: .875rem;
+  border: 1px solid var(--line);
+  color: var(--green);
+  text-decoration: none;
+}
+
+.chatgpt-instructions, .chatgpt-import-results { margin-top: 1rem; }
+.statement-actions .chatgpt-import-error { color: #9b3030; }
+
 .statement-log {
   display: flex;
   flex-direction: column;
@@ -91,7 +109,7 @@
 .statement-form .field:has(textarea), .statement-actions { grid-column: 1 / -1; }
 .statement-form input { min-width: 0; }
 
-.statement-form textarea {
+.statement-form textarea, .statement-textarea {
   width: 100%;
   min-height: 4.5rem;
   padding: .625rem .875rem;
@@ -114,7 +132,8 @@
   font: inherit;
 }
 
-.statement-form textarea:focus-visible, .statement-panel summary:focus-visible {
+.statement-form textarea:focus-visible, .statement-panel summary:focus-visible,
+.statement-textarea:focus-visible, .chatgpt-import-control:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 3px;
 }

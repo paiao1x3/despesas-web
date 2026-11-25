@@ -101,6 +101,30 @@
       </section>
 
       <section id="expenses-view" aria-labelledby="view-title" hidden>
+        <details class="report-panel statement-panel" id="chatgpt-import">
+          <summary><h2>Importar do meu ChatGPT</h2></summary>
+          <p class="statement-notice">Copie as instruções, envie a foto junto com elas no seu ChatGPT e cole a resposta aqui.</p>
+          <div class="form-actions chatgpt-import-actions">
+            <button class="quiet-button chatgpt-import-control" id="chatgpt-copy" type="button">Copiar instruções</button>
+            <a class="quiet-button chatgpt-import-control" href="https://chatgpt.com/" target="_blank" rel="noopener">Abrir ChatGPT</a>
+            <span id="chatgpt-copy-status" role="status"></span>
+          </div>
+          <div class="field chatgpt-instructions" id="chatgpt-instructions-field" hidden>
+            <label for="chatgpt-instructions">Instruções para o ChatGPT</label>
+            <textarea id="chatgpt-instructions" class="statement-textarea" rows="5" readonly></textarea>
+          </div>
+          <form class="statement-form" id="chatgpt-import-form" method="post">
+            <div class="field">
+              <label for="chatgpt-reply">Resposta do ChatGPT</label>
+              <textarea id="chatgpt-reply" rows="4" maxlength="100000" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Cole aqui o bloco JSON que o ChatGPT devolveu." required></textarea>
+            </div>
+            <div class="form-actions statement-actions">
+              <button class="primary-button app-action" id="chatgpt-import-button" type="submit">Importar lançamentos</button>
+              <span id="chatgpt-import-status" role="status"></span>
+            </div>
+          </form>
+          <div class="statement-turn chatgpt-import-results" id="chatgpt-import-results" aria-live="polite" hidden></div>
+        </details>
         <details class="report-panel statement-panel" id="statement-panel">
           <summary><h2>Importar extrato com IA</h2></summary>
           <p class="statement-notice">Ao enviar, a foto é analisada pela OpenAI. As despesas identificadas entram automaticamente e possíveis duplicatas ficam para revisão.</p>

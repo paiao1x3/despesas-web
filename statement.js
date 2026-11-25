@@ -11,6 +11,15 @@ const statementAssistant = (() => {
   const model = get('statement-model');
   const send = get('statement-send');
   const progress = get('statement-progress');
+  const pastePanel = get('chatgpt-import');
+  const pasteForm = get('chatgpt-import-form');
+  const pasteInput = get('chatgpt-reply');
+  const pasteButton = get('chatgpt-import-button');
+  const pasteResults = get('chatgpt-import-results');
+  const pasteStatus = get('chatgpt-import-status');
+  const copyStatus = get('chatgpt-copy-status');
+  const instructionsField = get('chatgpt-instructions-field');
+  const instructionsInput = get('chatgpt-instructions');
   const maxImageBytes = 6 * 1024 * 1024;
   const allowedImages = ['image/jpeg', 'image/png', 'image/webp'];
 
@@ -31,6 +40,7 @@ const statementAssistant = (() => {
   let awaitingDetails = false;
   let pending = null;
   let conversation = new AbortController();
+  let pastedImport = new AbortController();
 
   setup.hidden = Boolean(endpoint);
   form.hidden = !endpoint;
@@ -103,7 +113,7 @@ const statementAssistant = (() => {
     });
   }
 
-  function showImport(turn, { added, duplicates, invalid }, skipped) {
+  function showImport(turn, { added, duplicates, invalid }, skipped, signal) {
     const missed = invalid + skipped;
     const summary = [
       added.length + (added.length === 1 ? ' despesa registrada.' : ' despesas registradas.'),
@@ -129,7 +139,9 @@ const statementAssistant = (() => {
         const accept = appendText(item, 'button', 'Lançar mesmo assim', 'quiet-button');
         accept.type = 'button';
         accept.setAttribute('aria-label', 'Lançar mesmo assim: ' + expensesApp.formatExpense(row));
-        const signal = conversation.signal;
+        const status = appendText(item, 'p', '');
+        status.setAttribute('role', 'status');
+        status.hidden = true;
         accept.addEventListener('click', async () => {
           accept.disabled = true;
           try {
@@ -137,20 +149,112 @@ const statementAssistant = (() => {
             if (signal.aborted) return;
             if (result.added.length !== 1) throw new Error('Despesa inválida.');
             accept.remove();
-            const status = appendText(item, 'p', 'Despesa registrada.');
-            status.setAttribute('role', 'status');
+            status.textContent = 'Despesa registrada.';
           } catch {
             if (signal.aborted) return;
             accept.disabled = false;
-            addTurn('assistant', 'Não foi possível salvar essa despesa neste navegador. Tente novamente.', true);
+            status.textContent = 'Não foi possível salvar essa despesa. Tente novamente.';
           }
+          status.hidden = false;
         });
       }
       review.append(list);
       turn.append(review);
     }
-    scrollLog();
   }
+
+  function importInstructions() {
+    return [
+      'Leia a foto de extrato que anexei e extraia apenas despesas debitadas em reais (BRL).',
+      'Ignore saldos, totais, receitas, estornos, lançamentos pendentes, transferências entre minhas contas e pagamentos de fatura que já resumem compras.',
+      'Preserve a descrição da linha, removendo CPF, números de conta ou cartão e chaves Pix. Use a data completa (AAAA-MM-DD) e o valor positivo em centavos inteiros. Exemplo: R$ 12,50 vira 1250.',
+      'Se o ano ou a moeda estiverem incertos, pergunte antes de montar a lista. Pule as linhas ilegíveis ou duvidosas e conte essas linhas em skipped. Inclua no máximo 60 despesas por foto. Se houver mais, peça imagens menores.',
+      'Para cada linha, use uma destas categorias: ' + JSON.stringify(expensesApp.categoryNames().slice(0, 80)) + '. Se estiver em dúvida, use Outros.',
+      'Use reference somente para um identificador de transação visível na linha. Se estiver ausente, use null. Retorne um único bloco JSON, no formato abaixo. Os valores de exemplo servem apenas para mostrar o formato.',
+      '{"rows":[{"description":"Exemplo de compra","date":"2026-01-10","cents":1250,"category":"Alimentação","reference":null}],"skipped":0}'
+    ].join('\n\n');
+  }
+
+  function parsePastedReply(text) {
+    let payload;
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      const blocks = [...text.matchAll(/```(?:json)?[ \t]*\r?\n([\s\S]*?)```/gi)];
+      if (blocks.length !== 1) throw new Error('Cole o bloco JSON da resposta do ChatGPT.');
+      try {
+        payload = JSON.parse(blocks[0][1]);
+      } catch {
+        throw new Error('O bloco JSON está incompleto. Copie o bloco inteiro no ChatGPT.');
+      }
+    }
+    const rows = Array.isArray(payload) ? payload : payload?.rows;
+    const skipped = payload?.skipped ?? 0;
+    if (!Array.isArray(rows) || !Number.isSafeInteger(skipped) || skipped < 0 || skipped > 60) {
+      throw new Error('Peça ao ChatGPT para seguir o formato das instruções e cole a nova resposta.');
+    }
+    if (rows.length > 60) throw new Error('Importe até 60 despesas por vez. Divida o extrato em partes menores.');
+    return { rows, skipped };
+  }
+
+  function setPasteStatus(text, isError = false) {
+    pasteStatus.textContent = text;
+    pasteStatus.classList.toggle('chatgpt-import-error', isError);
+  }
+
+  get('chatgpt-copy').addEventListener('click', async () => {
+    const prompt = importInstructions();
+    const signal = pastedImport.signal;
+    try {
+      await navigator.clipboard.writeText(prompt);
+      if (signal.aborted) return;
+      instructionsField.hidden = true;
+      copyStatus.textContent = 'Instruções copiadas.';
+    } catch {
+      if (signal.aborted) return;
+      instructionsInput.value = prompt;
+      instructionsField.hidden = false;
+      instructionsInput.focus();
+      instructionsInput.select();
+      copyStatus.textContent = 'Copie o texto das instruções abaixo.';
+    }
+  });
+
+  pasteForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (pasteButton.disabled) return;
+    let parsed;
+    try {
+      parsed = parsePastedReply(pasteInput.value.trim());
+    } catch (error) {
+      setPasteStatus(error.message, true);
+      pasteInput.focus();
+      return;
+    }
+    pastedImport.abort();
+    pastedImport = new AbortController();
+    const { signal } = pastedImport;
+    pasteButton.disabled = true;
+    pasteInput.readOnly = true;
+    setPasteStatus('Conferindo os lançamentos…');
+    pasteResults.hidden = true;
+    pasteResults.replaceChildren();
+    try {
+      const imported = await expensesApp.importStatement(parsed.rows, { signal });
+      if (signal.aborted) return;
+      pasteResults.hidden = false;
+      showImport(pasteResults, imported, parsed.skipped, signal);
+      if (!imported.invalid) pasteForm.reset();
+      setPasteStatus('');
+    } catch {
+      if (!signal.aborted) setPasteStatus('Não foi possível salvar as despesas neste navegador. Tente novamente.', true);
+    } finally {
+      if (!signal.aborted) {
+        pasteButton.disabled = false;
+        pasteInput.readOnly = false;
+      }
+    }
+  });
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -224,7 +328,10 @@ const statementAssistant = (() => {
       awaitingDetails = result.status === 'clarify';
       const answer = result.reply || (imported ? 'Leitura concluída.' : 'Confira a foto e tente novamente.');
       const turn = addTurn('assistant', answer);
-      if (imported) showImport(turn, imported, result.skipped);
+      if (imported) {
+        showImport(turn, imported, result.skipped, conversation.signal);
+        scrollLog();
+      }
       transcript = [
         ...history,
         { author: 'user', text },
@@ -258,6 +365,18 @@ const statementAssistant = (() => {
     close() {
       newConversation(true);
       panel.open = false;
+      pastedImport.abort();
+      pastedImport = new AbortController();
+      pasteForm.reset();
+      pasteButton.disabled = false;
+      pasteInput.readOnly = false;
+      pasteResults.replaceChildren();
+      pasteResults.hidden = true;
+      instructionsInput.value = '';
+      instructionsField.hidden = true;
+      copyStatus.textContent = '';
+      setPasteStatus('');
+      pastePanel.open = false;
     }
   };
 })();
