@@ -64,6 +64,7 @@
           <button type="button" data-view="dashboard" aria-controls="dashboard-view" aria-current="page">Dashboard</button>
           <button type="button" data-view="joao" aria-controls="expenses-view">João</button>
           <button type="button" data-view="camille" aria-controls="expenses-view">Camille</button>
+          <button type="button" data-view="records" aria-controls="records-view">Base de despesas</button>
           <button type="button" data-view="advisor" aria-controls="advisor-view">Assessor</button>
         </nav>
         <button class="logout-button" id="logout" type="button">Sair</button>
@@ -114,7 +115,7 @@
       <section id="expenses-view" aria-labelledby="view-title" hidden>
         <details class="report-panel statement-panel" id="chatgpt-import">
           <summary><h2>Importar do meu ChatGPT</h2></summary>
-          <p class="statement-notice">Copie as instruções, envie o extrato junto com elas no seu ChatGPT e cole a resposta aqui.</p>
+          <p class="statement-notice">Copie as instruções, envie o extrato bancário ou a fatura do cartão no seu ChatGPT e cole a resposta para importar e ver o relatório.</p>
           <div class="form-actions chatgpt-import-actions">
             <button class="quiet-button chatgpt-import-control" id="chatgpt-copy" type="button">Copiar instruções</button>
             <a class="quiet-button chatgpt-import-control" href="https://chatgpt.com/" target="_blank" rel="noopener">Abrir ChatGPT</a>
@@ -137,8 +138,8 @@
           <div class="statement-turn chatgpt-import-results" id="chatgpt-import-results" aria-live="polite" hidden></div>
         </details>
         <details class="report-panel statement-panel" id="statement-panel">
-          <summary><h2>Importar extrato com IA</h2></summary>
-          <p class="statement-notice">A OpenAI analisa o extrato enviado. As despesas identificadas entram automaticamente e possíveis duplicatas ficam para revisão.</p>
+          <summary><h2>Importar extrato ou fatura com IA</h2></summary>
+          <p class="statement-notice">Após a leitura, confira as despesas registradas, as linhas ignoradas e as que precisam de confirmação.</p>
           <div class="statement-model-field">
             <label for="statement-model">Modelo da OpenAI</label>
             <select id="statement-model">
@@ -147,17 +148,17 @@
               <option value="gpt-6.2-astra">GPT-6.2 Astra</option>
             </select>
           </div>
-          <p class="storage-error" id="statement-setup" hidden>O serviço de IA ainda precisa ser configurado para receber extratos.</p>
-          <div class="statement-log" id="statement-log" role="log" aria-label="Conversa sobre o extrato"></div>
+          <p class="storage-error" id="statement-setup" hidden>O serviço de IA ainda precisa ser configurado para receber arquivos.</p>
+          <div class="statement-log" id="statement-log" role="log" aria-label="Conversa sobre a importação"></div>
           <form class="statement-form" id="statement-form" method="post" autocomplete="off">
             <div class="field">
-              <label for="statement-file">Arquivo do extrato</label>
+              <label for="statement-file">Extrato bancário ou fatura do cartão</label>
               <input type="file" id="statement-file" accept=".pdf,application/pdf,image/jpeg,image/png,image/webp" aria-describedby="statement-file-help">
               <small id="statement-file-help">PDF, JPG, PNG ou WebP de até 6 MB. Envie PDFs sem senha.</small>
             </div>
             <div class="field">
               <label for="statement-message">Mensagem <span>(opcional com arquivo)</span></label>
-              <textarea id="statement-message" rows="2" maxlength="800" placeholder="Ex.: Este extrato é de novembro de 2026."></textarea>
+              <textarea id="statement-message" rows="2" maxlength="800" placeholder="Ex.: Esta fatura é de novembro de 2026."></textarea>
             </div>
             <div class="form-actions statement-actions">
               <button class="primary-button app-action" id="statement-send" type="submit">Enviar</button>
@@ -219,11 +220,47 @@
           </section>
         </div>
       </section>
+      <section class="report-panel records-panel" id="records-view" aria-labelledby="view-title" hidden>
+        <p class="records-note">Lançamentos salvos neste navegador.</p>
+        <div class="records-filters">
+          <div class="field records-search">
+            <label for="records-search">Buscar por descrição ou categoria</label>
+            <input id="records-search" type="search" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="records-owner">Pessoa</label>
+            <select id="records-owner">
+              <option value="all">João e Camille</option>
+              <option value="joao">João</option>
+              <option value="camille">Camille</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="records-period">Período</label>
+            <select id="records-period"></select>
+          </div>
+        </div>
+        <p class="records-summary" id="records-summary" role="status"></p>
+        <div class="records-scroll" id="records-table" role="region" aria-label="Tabela de despesas" tabindex="0" hidden>
+          <table class="records-table" aria-label="Despesas salvas">
+            <thead><tr>
+              <th scope="col">Descrição</th>
+              <th scope="col">Valor</th>
+              <th scope="col">Data</th>
+              <th scope="col">Pessoa</th>
+              <th scope="col">Categoria</th>
+              <th scope="col">Ação</th>
+            </tr></thead>
+            <tbody id="records-body"></tbody>
+          </table>
+        </div>
+        <p class="empty-state" id="records-empty" hidden></p>
+      </section>
       <section class="advisor-panel report-panel" id="advisor-view" aria-labelledby="view-title" hidden>
         <div class="advisor-header">
           <div>
             <h2>Converse sobre seus gastos</h2>
-            <p class="statement-notice">O assessor usa os lançamentos deste navegador e envia um resumo à OpenAI a cada pergunta.</p>
+            <p class="statement-notice">O assessor usa o GPT-5.4 mini da OpenAI. O site envia um resumo dos lançamentos selecionados a cada pergunta.</p>
           </div>
           <div class="advisor-filters">
             <div class="field advisor-period">

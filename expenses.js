@@ -23,6 +23,7 @@ const expensesApp = (() => {
   const views = {
     dashboard: { title: 'Dashboard', panel: get('dashboard-view') },
     expenses: { title: 'Despesas', panel: get('expenses-view') },
+    records: { title: 'Base de despesas', panel: get('records-view') },
     advisor: { title: 'Assessor', panel: get('advisor-view') }
   };
   const newExpense = get('new-expense');
@@ -30,6 +31,9 @@ const expensesApp = (() => {
   const viewControls = get('view-controls');
   const dashboardOwnerFilter = get('dashboard-owner-filter');
   const dashboardOwner = get('dashboard-owner');
+  const recordsSearch = get('records-search');
+  const recordsOwner = get('records-owner');
+  const recordsPeriod = get('records-period');
   const storageError = get('storage-error');
   const categoryFilter = get('category-filter');
   const expenseForm = get('expense-form');
@@ -119,7 +123,7 @@ const expensesApp = (() => {
     }
     newExpense.hidden = view !== 'dashboard';
     dashboardOwnerFilter.hidden = view !== 'dashboard';
-    viewControls.hidden = view === 'advisor';
+    viewControls.hidden = view === 'advisor' || view === 'records';
     viewTitle.textContent = isExpenseView ? 'Despesas de ' + people[view] : views[view].title;
     document.title = 'Despesas | ' + viewTitle.textContent;
     for (const button of navButtons) {
@@ -130,6 +134,7 @@ const expensesApp = (() => {
       }
     }
     if (view === 'advisor') advisorApp.open();
+    if (view === 'records') renderRecords();
     if (moveFocus) viewTitle.focus();
   }
 
@@ -153,15 +158,20 @@ const expensesApp = (() => {
     return monthLabel.format(asUTC(month + '-01'));
   }
 
+  function setMonthOptions(select, months, selected, fallback) {
+    select.replaceChildren(
+      ...[...months].sort().reverse().map((month) => new Option(formatMonth(month), month)),
+      new Option('Todos os meses', 'all')
+    );
+    select.value = selected === 'all' || months.has(selected) ? selected : fallback;
+  }
+
   function syncFilters(selectedPeriod, selectedCategory) {
     const current = localDate().slice(0, 7);
     const months = new Set([current, ...expenses.map((expense) => expense.date.slice(0, 7))]);
+    setMonthOptions(recordsPeriod, months, recordsPeriod.value, 'all');
     if (selectedPeriod && selectedPeriod !== 'all') months.add(selectedPeriod);
-    const monthOptions = [...months].sort().reverse().map((month) =>
-      new Option(formatMonth(month), month)
-    );
-    period.replaceChildren(...monthOptions, new Option('Todos os meses', 'all'));
-    period.value = selectedPeriod || current;
+    setMonthOptions(period, months, selectedPeriod, current);
 
     const names = categoryNames();
     const currentCategory = category.value;
@@ -181,11 +191,11 @@ const expensesApp = (() => {
     categoryFilter.value = names.includes(selectedCategory) ? selectedCategory : '';
   }
 
-  function recordsForPeriod(owner) {
+  function recordsForPeriod(owner, selectedPeriod = period.value) {
     return expenses
       .filter((expense) =>
         (owner === 'all' || expense.owner === owner) &&
-        (period.value === 'all' || expense.date.startsWith(period.value + '-'))
+        (selectedPeriod === 'all' || expense.date.startsWith(selectedPeriod + '-'))
       )
       .sort((first, second) =>
         second.date.localeCompare(first.date) || second.createdAt - first.createdAt
@@ -277,9 +287,43 @@ const expensesApp = (() => {
     get('recent-empty').hidden = records.length > 0;
   }
 
+  function renderRecords() {
+    const query = normalizedWords(recordsSearch.value);
+    const rows = recordsForPeriod(recordsOwner.value, recordsPeriod.value)
+      .filter((expense) => !query || normalizedWords(expense.description).includes(query) ||
+        normalizedWords(expense.category).includes(query));
+    const total = rows.reduce((sum, expense) => sum + expense.cents, 0);
+    const count = rows.length.toLocaleString('pt-BR') + (rows.length === 1 ? ' lançamento' : ' lançamentos');
+    get('records-summary').textContent = count + ' · ' + money.format(total / 100);
+
+    const fragment = document.createDocumentFragment();
+    for (const expense of rows) {
+      const row = element('tr');
+      const dateCell = element('td');
+      const time = element('time', '', dateLabel.format(asUTC(expense.date)));
+      time.dateTime = expense.date;
+      dateCell.append(time);
+      const action = element('td', 'records-action');
+      action.append(recordAction('Editar', expense.description, () => {
+        showView(expense.owner);
+        editExpense(expense);
+      }, 'quiet-button'));
+      row.append(element('td', 'records-description', expense.description),
+        element('td', 'expense-value', money.format(expense.cents / 100)), dateCell,
+        element('td', '', people[expense.owner]), element('td', '', expense.category), action);
+      fragment.append(row);
+    }
+    get('records-body').replaceChildren(fragment);
+    get('records-table').hidden = rows.length === 0;
+    const empty = get('records-empty');
+    empty.hidden = rows.length > 0;
+    empty.textContent = expenses.length ? 'Nenhum lançamento corresponde aos filtros.' : 'Nenhuma despesa cadastrada.';
+  }
+
   function render() {
     renderDashboard();
     renderExpenses();
+    if (!views.records.panel.hidden) renderRecords();
   }
 
   function setStatus(message, isError = false) {
@@ -437,6 +481,9 @@ const expensesApp = (() => {
   });
   period.addEventListener('change', render);
   dashboardOwner.addEventListener('change', renderDashboard);
+  recordsSearch.addEventListener('input', renderRecords);
+  recordsOwner.addEventListener('change', renderRecords);
+  recordsPeriod.addEventListener('change', renderRecords);
   categoryFilter.addEventListener('change', renderExpenses);
   category.addEventListener('change', syncCustomField);
   cancelButton.addEventListener('click', () => {
@@ -476,21 +523,53 @@ const expensesApp = (() => {
       .replace(/\s+/g, ' ').trim().replace(/^(?:(?:p|para|de|via|em|no|na|ao) )+/, '') || normalized;
   }
 
-  async function importStatement(rows, { owner = activeOwner, force = false, signal } = {}) {
+  function isCardBillSummary(description, documentType) {
+    const words = normalizedWords(description);
+    const payment = /\b(?:pagamento|pagto|pagt|pgto|pgt|pag|liquidacao|quitacao|debito|deb aut(?:o)?)\b/;
+    const [beforeBill, afterBill] = words.split(/\bfatura\b/, 2).map((part) => part.trim());
+    if (afterBill !== undefined) {
+      const cardDetail = /^(?:(?:d[eo] )?(?:cartao|cartoes|credito|itau|nubank|bradesco|santander|inter|credicard|visa|mastercard|amex)|bb ourocard|caixa cartoes)\b/;
+      const genericDetail = /^(?:(?:do mes|mensal|atual|anterior|vencida|paga|quitada|liquidada|via pix|por pix|por boleto|em debito automatico) *)*(?:\d[\d ]*)?$/;
+      const paid = payment.test(beforeBill) || /^(?:paga|quitada|liquidada)\b/.test(afterBill);
+      const summary = /^(?:total|valor|saldo)(?: (?:da|de))?$/.test(beforeBill);
+      if ((paid || summary) && (cardDetail.test(afterBill) || genericDetail.test(afterBill))) return true;
+      if (!beforeBill && cardDetail.test(afterBill)) return true;
+    }
+
+    // Uma despesa paga com cartão é diferente de um pagamento feito ao emissor do cartão.
+    if (/^(?:pagamento|pagto|pgto|pagt|pgt|pag) (?:d[eo] )?cartao(?: (?:de )?credito)?(?: \d[\d ]*)?$/.test(words)) return true;
+    if (/^pagamento recebido(?: obrigad[oa])?$/.test(words)) return true;
+    if (documentType !== 'fatura') return false;
+    return /^(?:pagamento|pagto|pgto|pag)(?: (?:recebido|efetuado|realizado|confirmado|registrado|processado|automatico|on line|online|em dinheiro|via pix|por pix|pix|obrigad[oa]))*(?: \d[\d ]*)?$/.test(words) ||
+      /^(?:credito (?:de |do )?pagamento|debito automatico|saldo anterior|total (?:geral|a pagar)|valor a pagar|pagamento minimo)$/.test(words);
+  }
+
+  async function importStatement(rows, { owner = activeOwner, force = false, signal, documentType } = {}) {
     if (!Array.isArray(rows) || rows.length > 60) throw new Error('A leitura devolveu uma lista inválida.');
     if (!Object.hasOwn(people, owner)) throw new Error('Pessoa inválida para a importação.');
-    const { added, duplicates, invalid } = await withExpenseWrite(() => {
+    const result = await withExpenseWrite(() => {
       if (signal?.aborted) throw signal.reason;
       const latest = readExpenses();
       const personal = latest.filter((expense) => expense.owner === owner);
       const categories = [...defaultCategories, ...personal.map((expense) => expense.category)];
       const added = [];
       const duplicates = [];
-      let invalid = 0;
-      for (const row of rows) {
-        const label = typeof row?.description === 'string' ? row.description.trim().slice(0, 100) : '';
-        if (!label || !validDate(row.date) || !Number.isSafeInteger(row.cents) || row.cents < 1 || row.cents > maxCents) {
-          invalid++;
+      const invalid = [];
+      const excluded = [];
+      for (const [index, row] of rows.entries()) {
+        const rawDescription = typeof row?.description === 'string' ? row.description.trim() : '';
+        const label = rawDescription.slice(0, 100);
+        const line = { description: label || 'Linha ' + (index + 1), date: row?.date, cents: row?.cents };
+        if (isCardBillSummary(rawDescription, documentType)) {
+          excluded.push({ ...line, reason: 'Pagamento ou total da fatura do cartão.' });
+          continue;
+        }
+        const issues = [];
+        if (!label) issues.push('descrição ausente');
+        if (!validDate(line.date)) issues.push('data ausente ou inválida');
+        if (!Number.isSafeInteger(line.cents) || line.cents < 1 || line.cents > maxCents) issues.push('valor inválido para uma despesa em reais');
+        if (issues.length) {
+          invalid.push({ ...line, reason: 'Confira os dados da linha (' + issues.join(', ') + ').' });
           continue;
         }
         const category = categories.find((name) => name === row.category) || 'Outros';
@@ -510,15 +589,16 @@ const expensesApp = (() => {
       const next = [...latest, ...added];
       if (added.length) localStorage.setItem(storageKey, JSON.stringify(next));
       expenses = next;
-      return { added, duplicates, invalid };
+      return { added, duplicates, invalid, excluded };
     });
     storageError.hidden = true;
+    const { added } = result;
     const months = new Set(added.map((expense) => expense.date.slice(0, 7)));
     const visibleMonth = months.size === 1 && period.value !== 'all' ? [...months][0] : 'all';
     const changedCurrentOwner = owner === activeOwner && added.length > 0;
     syncFilters(changedCurrentOwner ? visibleMonth : period.value, changedCurrentOwner ? '' : categoryFilter.value);
     render();
-    return { added, duplicates, invalid };
+    return result;
   }
 
   return {
@@ -529,12 +609,19 @@ const expensesApp = (() => {
     formatMonth,
     localDate,
     normalizedWords,
-    formatExpense(expense) {
-      return expense.description + ' · ' + dateLabel.format(asUTC(expense.date)) + ' · ' + money.format(expense.cents / 100);
+    formatExpense({ description, date, cents, category }) {
+      const details = [description];
+      if (validDate(date)) details.push(dateLabel.format(asUTC(date)));
+      if (Number.isSafeInteger(cents)) details.push(money.format(cents / 100));
+      if (category) details.push(category);
+      return details.join(' · ');
     },
     open() {
       activeOwner = defaultOwner;
       dashboardOwner.value = 'all';
+      recordsSearch.value = '';
+      recordsOwner.value = 'all';
+      recordsPeriod.value = 'all';
       showView('dashboard');
       refresh('', '');
       resetForm();
