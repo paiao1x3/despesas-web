@@ -2,6 +2,7 @@ const expensesApp = (() => {
   const storageKey = 'despesas.records.v1';
   const people = { joao: 'João', camille: 'Camille' };
   const defaultOwner = 'joao';
+  const firstOwnerDeployment = Date.parse('2026-11-26T14:35:58Z');
   const newCategoryValue = 'new';
   const defaultCategories = [
     'Alimentação', 'Assinaturas', 'Compras', 'Educação', 'Lazer',
@@ -89,7 +90,12 @@ const expensesApp = (() => {
     )) {
       throw new Error('Dados de despesas inválidos');
     }
-    return records.map((record) => record.owner === undefined ? { ...record, owner: defaultOwner } : record);
+    return records.map((record) => {
+      // A primeira versão podia gravar João em lançamentos antigos durante outro salvamento.
+      const inheritedOwner = record.owner === 'joao' && record.ownerConfirmed !== true &&
+        record.createdAt < firstOwnerDeployment;
+      return record.owner === undefined || inheritedOwner ? { ...record, owner: 'camille' } : record;
+    });
   }
 
   function expenseId() {
@@ -398,7 +404,7 @@ const expensesApp = (() => {
     }
 
     const id = editingId || expenseId();
-    const updated = { id, description: label, category: name, date: date.value, cents, owner };
+    const updated = { id, description: label, category: name, date: date.value, cents, owner, ownerConfirmed: true };
     const moved = owner !== sourceOwner;
     const message = moved ? 'Despesa movida para ' + people[owner] + '.'
       : editingId ? 'Despesa atualizada.' : 'Despesa registrada.';
@@ -498,7 +504,7 @@ const expensesApp = (() => {
           continue;
         }
         const { date, cents, description } = candidate;
-        added.push({ ...candidate, owner, id: expenseId(), createdAt: Date.now(),
+        added.push({ ...candidate, owner, ownerConfirmed: true, id: expenseId(), createdAt: Date.now(),
           statementSource: { date, cents, description, reference } });
       }
       const next = [...latest, ...added];
