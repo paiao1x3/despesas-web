@@ -4,7 +4,7 @@ const statementAssistant = (() => {
   const form = get('statement-form');
   const setup = get('statement-setup');
   const log = get('statement-log');
-  const photo = get('statement-photo');
+  const fileInput = get('statement-file');
   const message = get('statement-message');
   const model = get('statement-model');
   const send = get('statement-send');
@@ -18,8 +18,12 @@ const statementAssistant = (() => {
   const copyStatus = get('chatgpt-copy-status');
   const instructionsField = get('chatgpt-instructions-field');
   const instructionsInput = get('chatgpt-instructions');
-  const maxImageBytes = 6 * 1024 * 1024;
-  const allowedImages = ['image/jpeg', 'image/png', 'image/webp'];
+  const maxFileBytes = 6 * 1024 * 1024;
+  const allowedTypes = new Set(['application/pdf', 'image/jpeg', 'image/png', 'image/webp']);
+  const fileTypes = new Map([
+    ['pdf', 'application/pdf'], ['jpg', 'image/jpeg'], ['jpeg', 'image/jpeg'],
+    ['png', 'image/png'], ['webp', 'image/webp']
+  ]);
 
   const endpoint = (() => {
     try {
@@ -33,7 +37,7 @@ const statementAssistant = (() => {
   })();
 
   let transcript = [];
-  let currentPhoto = '';
+  let currentFile = '';
   let awaitingDetails = false;
   let pending = null;
   let conversation = new AbortController();
@@ -81,7 +85,7 @@ const statementAssistant = (() => {
   }
 
   function setBusy(busy) {
-    for (const control of [send, photo, message, model]) control.disabled = busy;
+    for (const control of [send, fileInput, message, model]) control.disabled = busy;
     progress.textContent = busy ? 'Analisando o extrato…' : '';
   }
 
@@ -91,19 +95,30 @@ const statementAssistant = (() => {
     pending?.abort();
     pending = null;
     transcript = [];
-    currentPhoto = '';
+    currentFile = '';
     awaitingDetails = false;
     form.reset();
     setBusy(false);
     log.replaceChildren();
-    if (endpoint) addTurn('assistant', 'Anexe uma foto do extrato. Você também pode indicar o mês e o ano ou fazer perguntas sobre a leitura.');
+    if (endpoint) addTurn('assistant', 'Anexe o extrato em PDF ou imagem. Você também pode indicar o mês e o ano ou fazer perguntas sobre a leitura.');
   }
 
-  function readPhoto(file) {
+  function documentType(file) {
+    if (file.type === 'application/x-pdf') return 'application/pdf';
+    if (!file.type || file.type === 'application/octet-stream') {
+      return fileTypes.get(file.name.toLowerCase().split('.').at(-1));
+    }
+    return file.type;
+  }
+
+  function readFile(file, type) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = () => reject(new Error('Não foi possível abrir a foto. Selecione o arquivo novamente.'));
+      reader.onload = () => {
+        const base64 = reader.result.slice(reader.result.indexOf(',') + 1);
+        resolve('data:' + type + ';base64,' + base64);
+      };
+      reader.onerror = () => reject(new Error('Não foi possível abrir o extrato. Selecione o arquivo novamente.'));
       reader.readAsDataURL(file);
     });
   }
@@ -160,10 +175,10 @@ const statementAssistant = (() => {
 
   function importInstructions() {
     return [
-      'Leia a foto de extrato que anexei e extraia apenas despesas debitadas em reais (BRL).',
+      'Leia o extrato que anexei e extraia apenas despesas debitadas em reais (BRL). Se for PDF, confira todas as páginas.',
       'Ignore saldos, totais, receitas, estornos, lançamentos pendentes, transferências entre minhas contas e pagamentos de fatura que já resumem compras.',
       'Preserve a descrição da linha, removendo CPF, números de conta ou cartão e chaves Pix. Use a data completa (AAAA-MM-DD) e o valor positivo em centavos inteiros. Exemplo: R$ 12,50 vira 1250.',
-      'Se o ano ou a moeda estiverem incertos, pergunte antes de montar a lista. Pule as linhas ilegíveis ou duvidosas e conte essas linhas em skipped. Inclua no máximo 60 despesas por foto. Se houver mais, peça imagens menores.',
+      'Se o ano ou a moeda estiverem incertos, pergunte antes de montar a lista. Pule as linhas ilegíveis ou duvidosas e conte essas linhas em skipped. Inclua no máximo 60 despesas por arquivo. Se houver mais, peça que eu divida o extrato em partes.',
       'Para cada linha, use uma destas categorias: ' + JSON.stringify(expensesApp.categoryNames().slice(0, 80)) + '. Se estiver em dúvida, use Outros.',
       'Use reference somente para um identificador de transação visível na linha. Se estiver ausente, use null. Retorne um único bloco JSON, no formato abaixo. Os valores de exemplo servem apenas para mostrar o formato.',
       '{"rows":[{"description":"Exemplo de compra","date":"2026-01-10","cents":1250,"category":"Alimentação","reference":null}],"skipped":0}'
@@ -254,35 +269,36 @@ const statementAssistant = (() => {
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     if (!endpoint || pending) return;
-    const file = photo.files[0];
+    const file = fileInput.files[0];
     const text = message.value.trim();
     if (!file && !text) {
-      addTurn('assistant', 'Anexe uma foto ou escreva uma mensagem.');
+      addTurn('assistant', 'Anexe um extrato ou escreva uma mensagem.');
       return;
     }
-    if (!file && !currentPhoto) {
+    if (!file && !currentFile) {
       addTurn('user', text);
-      addTurn('assistant', 'Anexe uma foto do extrato para começar.');
+      addTurn('assistant', 'Anexe um extrato em PDF ou imagem para começar.');
       return;
     }
-    if (file && (!allowedImages.includes(file.type) || !file.size || file.size > maxImageBytes)) {
-      addTurn('assistant', 'Selecione uma foto JPG, PNG ou WebP de até 6 MB.', true);
-      photo.focus();
+    const type = file && documentType(file);
+    if (file && (!allowedTypes.has(type) || !file.size || file.size > maxFileBytes)) {
+      addTurn('assistant', 'Selecione um arquivo PDF, JPG, PNG ou WebP de até 6 MB.', true);
+      fileInput.focus();
       return;
     }
     const request = new AbortController();
     const timeout = setTimeout(() => request.abort(), 100000);
     pending = request;
     setBusy(true);
-    addTurn('user', [text, file ? 'Foto anexada: ' + file.name : ''].filter(Boolean).join('\n'));
+    addTurn('user', [text, file ? 'Arquivo anexado: ' + file.name : ''].filter(Boolean).join('\n'));
     try {
-      const image = file ? await readPhoto(file) : currentPhoto;
+      const attachment = file ? await readFile(file, type) : currentFile;
       const mode = file || awaitingDetails ? 'extract' : 'answer';
       const history = file ? [] : transcript.slice(-6);
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image, mode, history, message: text, model: model.value, categories: expensesApp.categoryNames() }),
+        body: JSON.stringify({ file: attachment, mode, history, message: text, model: model.value, categories: expensesApp.categoryNames() }),
         credentials: 'omit',
         redirect: 'error',
         signal: request.signal
@@ -305,9 +321,9 @@ const statementAssistant = (() => {
         }
       }
       if (pending !== request) return;
-      currentPhoto = image;
+      currentFile = attachment;
       awaitingDetails = result.status === 'clarify';
-      const answer = result.reply || (imported ? 'Leitura concluída.' : 'Confira a foto e tente novamente.');
+      const answer = result.reply || (imported ? 'Leitura concluída.' : 'Confira o arquivo e tente novamente.');
       const turn = addTurn('assistant', answer);
       if (imported) {
         showImport(turn, imported, result.skipped, conversation.signal);
@@ -338,7 +354,7 @@ const statementAssistant = (() => {
 
   get('statement-clear').addEventListener('click', () => {
     newConversation();
-    photo.focus();
+    fileInput.focus();
   });
   newConversation();
 

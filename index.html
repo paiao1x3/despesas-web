@@ -105,7 +105,7 @@
       <section id="expenses-view" aria-labelledby="view-title" hidden>
         <details class="report-panel statement-panel" id="chatgpt-import">
           <summary><h2>Importar do meu ChatGPT</h2></summary>
-          <p class="statement-notice">Copie as instruções, envie a foto junto com elas no seu ChatGPT e cole a resposta aqui.</p>
+          <p class="statement-notice">Copie as instruções, envie o extrato junto com elas no seu ChatGPT e cole a resposta aqui.</p>
           <div class="form-actions chatgpt-import-actions">
             <button class="quiet-button chatgpt-import-control" id="chatgpt-copy" type="button">Copiar instruções</button>
             <a class="quiet-button chatgpt-import-control" href="https://chatgpt.com/" target="_blank" rel="noopener">Abrir ChatGPT</a>
@@ -129,7 +129,7 @@
         </details>
         <details class="report-panel statement-panel" id="statement-panel">
           <summary><h2>Importar extrato com IA</h2></summary>
-          <p class="statement-notice">Ao enviar, a foto é analisada pela OpenAI. As despesas identificadas entram automaticamente e possíveis duplicatas ficam para revisão.</p>
+          <p class="statement-notice">A OpenAI analisa o extrato enviado. As despesas identificadas entram automaticamente e possíveis duplicatas ficam para revisão.</p>
           <div class="statement-model-field">
             <label for="statement-model">Modelo da OpenAI</label>
             <select id="statement-model">
@@ -138,16 +138,16 @@
               <option value="gpt-6.2-astra">GPT-6.2 Astra</option>
             </select>
           </div>
-          <p class="storage-error" id="statement-setup" hidden>O serviço de IA ainda precisa ser configurado para receber fotos.</p>
+          <p class="storage-error" id="statement-setup" hidden>O serviço de IA ainda precisa ser configurado para receber extratos.</p>
           <div class="statement-log" id="statement-log" role="log" aria-label="Conversa sobre o extrato"></div>
           <form class="statement-form" id="statement-form" method="post" autocomplete="off">
             <div class="field">
-              <label for="statement-photo">Foto do extrato</label>
-              <input type="file" id="statement-photo" accept="image/jpeg,image/png,image/webp">
-              <small>JPG, PNG ou WebP de até 6 MB. Você pode recortar dados pessoais que estiverem fora dos lançamentos.</small>
+              <label for="statement-file">Arquivo do extrato</label>
+              <input type="file" id="statement-file" accept=".pdf,application/pdf,image/jpeg,image/png,image/webp" aria-describedby="statement-file-help">
+              <small id="statement-file-help">PDF, JPG, PNG ou WebP de até 6 MB. Envie PDFs sem senha.</small>
             </div>
             <div class="field">
-              <label for="statement-message">Mensagem <span>(opcional com foto)</span></label>
+              <label for="statement-message">Mensagem <span>(opcional com arquivo)</span></label>
               <textarea id="statement-message" rows="2" maxlength="800" placeholder="Ex.: Este extrato é de novembro de 2026."></textarea>
             </div>
             <div class="form-actions statement-actions">
