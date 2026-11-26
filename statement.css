@@ -149,7 +149,8 @@
   gap: 0 1.25rem;
 }
 
-.advisor-period { min-width: min(100%, 13rem); margin-bottom: 1rem; }
+.advisor-filters { display: flex; flex-wrap: wrap; gap: .75rem; margin-bottom: 1rem; }
+.advisor-period { min-width: min(100%, 10rem); }
 .advisor-period label { font-size: .9375rem; }
 .advisor-log { min-height: 10rem; }
 .advisor-prompts { padding: .5rem; }

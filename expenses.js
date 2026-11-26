@@ -1,5 +1,7 @@
 const expensesApp = (() => {
   const storageKey = 'despesas.records.v1';
+  const people = { joao: 'João', camille: 'Camille' };
+  const defaultOwner = 'joao';
   const newCategoryValue = 'new';
   const defaultCategories = [
     'Alimentação', 'Assinaturas', 'Compras', 'Educação', 'Lazer',
@@ -25,9 +27,13 @@ const expensesApp = (() => {
   const newExpense = get('new-expense');
   const period = get('period');
   const viewControls = get('view-controls');
+  const dashboardOwnerFilter = get('dashboard-owner-filter');
+  const dashboardOwner = get('dashboard-owner');
   const storageError = get('storage-error');
   const categoryFilter = get('category-filter');
   const expenseForm = get('expense-form');
+  const expenseOwnerField = get('expense-owner-field');
+  const expenseOwner = get('expense-owner');
   const description = get('expense-description');
   const amount = get('expense-amount');
   const date = get('expense-date');
@@ -40,6 +46,7 @@ const expensesApp = (() => {
   const cancelButton = get('cancel-edit');
 
   let expenses = [];
+  let activeOwner = defaultOwner;
   let editingId = null;
 
   function localDate() {
@@ -77,11 +84,12 @@ const expensesApp = (() => {
       !record || typeof record.id !== 'string' || typeof record.description !== 'string' ||
       typeof record.category !== 'string' || !validDate(record.date) ||
       !Number.isSafeInteger(record.cents) || record.cents < 1 || record.cents > maxCents ||
-      !Number.isFinite(record.createdAt)
+      !Number.isFinite(record.createdAt) ||
+      (record.owner !== undefined && !Object.hasOwn(people, record.owner))
     )) {
       throw new Error('Dados de despesas inválidos');
     }
-    return records;
+    return records.map((record) => record.owner === undefined ? { ...record, owner: defaultOwner } : record);
   }
 
   function expenseId() {
@@ -93,10 +101,20 @@ const expensesApp = (() => {
   }
 
   function showView(view, moveFocus = false) {
-    for (const [key, { panel }] of Object.entries(views)) panel.hidden = key !== view;
+    const isExpenseView = Object.hasOwn(people, view);
+    const panelKey = isExpenseView ? 'expenses' : view;
+    for (const [key, { panel }] of Object.entries(views)) panel.hidden = key !== panelKey;
+    if (isExpenseView && activeOwner !== view) {
+      statementAssistant.close();
+      activeOwner = view;
+      resetForm();
+      syncFilters(period.value, '');
+      renderExpenses();
+    }
     newExpense.hidden = view !== 'dashboard';
+    dashboardOwnerFilter.hidden = view !== 'dashboard';
     viewControls.hidden = view === 'advisor';
-    viewTitle.textContent = views[view].title;
+    viewTitle.textContent = isExpenseView ? 'Despesas de ' + people[view] : views[view].title;
     document.title = 'Despesas | ' + viewTitle.textContent;
     for (const button of navButtons) {
       if (button.dataset.view === view) {
@@ -109,8 +127,9 @@ const expensesApp = (() => {
     if (moveFocus) viewTitle.focus();
   }
 
-  function categoryNames() {
-    return [...new Set([...defaultCategories, ...expenses.map((expense) => expense.category)])]
+  function categoryNames(owner = activeOwner) {
+    const categories = expenses.filter((expense) => expense.owner === owner).map((expense) => expense.category);
+    return [...new Set([...defaultCategories, ...categories])]
       .sort((first, second) => first.localeCompare(second, 'pt-BR'));
   }
 
@@ -156,9 +175,12 @@ const expensesApp = (() => {
     categoryFilter.value = names.includes(selectedCategory) ? selectedCategory : '';
   }
 
-  function recordsForPeriod() {
+  function recordsForPeriod(owner) {
     return expenses
-      .filter((expense) => period.value === 'all' || expense.date.startsWith(period.value + '-'))
+      .filter((expense) =>
+        (owner === 'all' || expense.owner === owner) &&
+        (period.value === 'all' || expense.date.startsWith(period.value + '-'))
+      )
       .sort((first, second) =>
         second.date.localeCompare(first.date) || second.createdAt - first.createdAt
       );
@@ -179,12 +201,13 @@ const expensesApp = (() => {
     return button;
   }
 
-  function expenseRow(expense, canEdit = false) {
+  function expenseRow(expense, canEdit = false, showOwner = false) {
     const row = element('li', 'expense-row');
     const details = element('p', 'expense-details');
     const time = element('time', '', dateLabel.format(asUTC(expense.date)));
     time.dateTime = expense.date;
     details.append(time, element('span', 'expense-category-label', expense.category));
+    if (showOwner) details.append(element('span', '', people[expense.owner]));
     row.append(
       element('strong', '', expense.description),
       element('span', 'expense-value', money.format(expense.cents / 100)),
@@ -216,8 +239,9 @@ const expensesApp = (() => {
     return row;
   }
 
-  function renderExpenses(records) {
-    const visible = records.filter((expense) => !categoryFilter.value || expense.category === categoryFilter.value);
+  function renderExpenses() {
+    const visible = recordsForPeriod(activeOwner)
+      .filter((expense) => !categoryFilter.value || expense.category === categoryFilter.value);
     get('expense-list').replaceChildren(...visible.map((expense) => expenseRow(expense, true)));
     const empty = get('expenses-empty');
     empty.hidden = visible.length > 0;
@@ -226,8 +250,8 @@ const expensesApp = (() => {
       : 'Nenhuma despesa neste período.';
   }
 
-  function render() {
-    const records = recordsForPeriod();
+  function renderDashboard() {
+    const records = recordsForPeriod(dashboardOwner.value);
     const totals = new Map();
     let total = 0;
     for (const expense of records) {
@@ -242,9 +266,14 @@ const expensesApp = (() => {
     get('top-category').textContent = ranked[0]?.[0] || '—';
     get('category-list').replaceChildren(...ranked.map(([name, cents]) => categoryRow(name, cents, total)));
     get('categories-empty').hidden = records.length > 0;
-    get('recent-list').replaceChildren(...records.slice(0, 5).map((expense) => expenseRow(expense)));
+    get('recent-list').replaceChildren(...records.slice(0, 5)
+      .map((expense) => expenseRow(expense, false, dashboardOwner.value === 'all')));
     get('recent-empty').hidden = records.length > 0;
-    renderExpenses(records);
+  }
+
+  function render() {
+    renderDashboard();
+    renderExpenses();
   }
 
   function setStatus(message, isError = false) {
@@ -255,6 +284,8 @@ const expensesApp = (() => {
   function resetForm() {
     editingId = null;
     expenseForm.reset();
+    expenseOwner.value = activeOwner;
+    expenseOwnerField.hidden = true;
     date.value = localDate();
     category.value = '';
     syncCustomField();
@@ -266,6 +297,8 @@ const expensesApp = (() => {
 
   function editExpense(expense) {
     editingId = expense.id;
+    expenseOwner.value = expense.owner;
+    expenseOwnerField.hidden = false;
     description.value = expense.description;
     amount.value = (expense.cents / 100).toFixed(2).replace('.', ',');
     date.value = expense.date;
@@ -319,11 +352,13 @@ const expensesApp = (() => {
   async function deleteExpense(expense) {
     if (!window.confirm('Excluir a despesa “' + expense.description + '”?')) return;
     if (!await writeChanges(expense.id, null, true)) return;
-    if (editingId === expense.id) resetForm();
-    setStatus('Despesa excluída.');
     syncFilters(period.value, categoryFilter.value);
     render();
-    get('expense-list-title').focus();
+    if (activeOwner === expense.owner && !views.expenses.panel.hidden) {
+      if (editingId === expense.id) resetForm();
+      setStatus('Despesa excluída.');
+      get('expense-list-title').focus();
+    }
   }
 
   expenseForm.addEventListener('submit', async (event) => {
@@ -331,6 +366,8 @@ const expensesApp = (() => {
     if (saveButton.disabled) return;
     const label = description.value.trim();
     const cents = toCents(amount.value);
+    const sourceOwner = activeOwner;
+    const owner = editingId ? expenseOwner.value : sourceOwner;
 
     if (!label) {
       setStatus('Informe uma descrição para a despesa.', true);
@@ -356,21 +393,29 @@ const expensesApp = (() => {
         customCategory.focus();
         return;
       }
-      name = categoryNames().find((item) => item.localeCompare(customName, 'pt-BR', { sensitivity: 'base' }) === 0)
+      name = categoryNames(owner).find((item) => item.localeCompare(customName, 'pt-BR', { sensitivity: 'base' }) === 0)
         || customName;
     }
 
     const id = editingId || expenseId();
-    const updated = { id, description: label, category: name, date: date.value, cents };
-    const message = editingId ? 'Despesa atualizada.' : 'Despesa registrada.';
+    const updated = { id, description: label, category: name, date: date.value, cents, owner };
+    const moved = owner !== sourceOwner;
+    const message = moved ? 'Despesa movida para ' + people[owner] + '.'
+      : editingId ? 'Despesa atualizada.' : 'Despesa registrada.';
     saveButton.disabled = true;
     const saved = await writeChanges(id, updated, Boolean(editingId));
     saveButton.disabled = false;
     if (!saved) return;
+    if (activeOwner !== sourceOwner) {
+      syncFilters(period.value, categoryFilter.value);
+      render();
+      return;
+    }
 
     const visibleMonth = period.value === 'all' ? 'all' : updated.date.slice(0, 7);
     const visibleCategory = categoryFilter.value === name ? name : '';
-    resetForm();
+    if (moved && !views.expenses.panel.hidden) showView(owner);
+    else resetForm();
     syncFilters(visibleMonth, visibleCategory);
     setStatus(message);
     render();
@@ -381,11 +426,12 @@ const expensesApp = (() => {
     button.addEventListener('click', () => showView(button.dataset.view, true));
   }
   newExpense.addEventListener('click', () => {
-    showView('expenses');
+    showView(dashboardOwner.value === 'all' ? activeOwner : dashboardOwner.value);
     description.focus();
   });
   period.addEventListener('change', render);
-  categoryFilter.addEventListener('change', () => renderExpenses(recordsForPeriod()));
+  dashboardOwner.addEventListener('change', renderDashboard);
+  categoryFilter.addEventListener('change', renderExpenses);
   category.addEventListener('change', syncCustomField);
   cancelButton.addEventListener('click', () => {
     resetForm();
@@ -424,12 +470,14 @@ const expensesApp = (() => {
       .replace(/\s+/g, ' ').trim().replace(/^(?:(?:p|para|de|via|em|no|na|ao) )+/, '') || normalized;
   }
 
-  async function importStatement(rows, { force = false, signal } = {}) {
+  async function importStatement(rows, { owner = activeOwner, force = false, signal } = {}) {
     if (!Array.isArray(rows) || rows.length > 60) throw new Error('A leitura devolveu uma lista inválida.');
+    if (!Object.hasOwn(people, owner)) throw new Error('Pessoa inválida para a importação.');
     const { added, duplicates, invalid } = await withExpenseWrite(() => {
       if (signal?.aborted) throw signal.reason;
       const latest = readExpenses();
-      const categories = [...defaultCategories, ...latest.map((expense) => expense.category)];
+      const personal = latest.filter((expense) => expense.owner === owner);
+      const categories = [...defaultCategories, ...personal.map((expense) => expense.category)];
       const added = [];
       const duplicates = [];
       let invalid = 0;
@@ -443,14 +491,14 @@ const expensesApp = (() => {
         const candidate = { description: label, date: row.date, cents: row.cents, category };
         const reference = typeof row.reference === 'string'
           ? normalizedWords(row.reference.slice(0, 100)).replaceAll(' ', '') : '';
-        const matching = !force && (latest.find((known) => sameExpense(candidate, known, reference))
+        const matching = !force && (personal.find((known) => sameExpense(candidate, known, reference))
           || added.find((known) => sameExpense(candidate, known, reference)));
         if (matching) {
           duplicates.push({ row: { ...candidate, reference }, matching });
           continue;
         }
         const { date, cents, description } = candidate;
-        added.push({ ...candidate, id: expenseId(), createdAt: Date.now(),
+        added.push({ ...candidate, owner, id: expenseId(), createdAt: Date.now(),
           statementSource: { date, cents, description, reference } });
       }
       const next = [...latest, ...added];
@@ -461,13 +509,15 @@ const expensesApp = (() => {
     storageError.hidden = true;
     const months = new Set(added.map((expense) => expense.date.slice(0, 7)));
     const visibleMonth = months.size === 1 && period.value !== 'all' ? [...months][0] : 'all';
-    syncFilters(added.length ? visibleMonth : period.value, added.length ? '' : categoryFilter.value);
+    const changedCurrentOwner = owner === activeOwner && added.length > 0;
+    syncFilters(changedCurrentOwner ? visibleMonth : period.value, changedCurrentOwner ? '' : categoryFilter.value);
     render();
     return { added, duplicates, invalid };
   }
 
   return {
     categoryNames,
+    getExpenseOwner: () => activeOwner,
     importStatement,
     readExpenses,
     formatMonth,
@@ -477,6 +527,8 @@ const expensesApp = (() => {
       return expense.description + ' · ' + dateLabel.format(asUTC(expense.date)) + ' · ' + money.format(expense.cents / 100);
     },
     open() {
+      activeOwner = defaultOwner;
+      dashboardOwner.value = 'all';
       showView('dashboard');
       refresh('', '');
       resetForm();

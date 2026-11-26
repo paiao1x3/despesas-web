@@ -62,7 +62,8 @@
         <div class="app-brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span> Despesas</div>
         <nav class="app-nav" aria-label="Navegação principal">
           <button type="button" data-view="dashboard" aria-controls="dashboard-view" aria-current="page">Dashboard</button>
-          <button type="button" data-view="expenses" aria-controls="expenses-view">Despesas</button>
+          <button type="button" data-view="joao" aria-controls="expenses-view">João</button>
+          <button type="button" data-view="camille" aria-controls="expenses-view">Camille</button>
           <button type="button" data-view="advisor" aria-controls="advisor-view">Assessor</button>
         </nav>
         <button class="logout-button" id="logout" type="button">Sair</button>
@@ -73,6 +74,14 @@
       <div class="view-header">
         <h1 id="view-title" tabindex="-1">Dashboard</h1>
         <div class="view-controls" id="view-controls">
+          <div class="owner-filter" id="dashboard-owner-filter">
+            <label for="dashboard-owner">Pessoa</label>
+            <select id="dashboard-owner">
+              <option value="all">João e Camille</option>
+              <option value="joao">João</option>
+              <option value="camille">Camille</option>
+            </select>
+          </div>
           <div class="period-filter">
             <label for="period">Período</label>
             <select id="period"></select>
@@ -161,6 +170,13 @@
           <section class="report-panel" aria-labelledby="expense-form-title">
             <h2 id="expense-form-title">Registrar despesa</h2>
             <form class="expense-form" id="expense-form" method="post">
+              <div class="field" id="expense-owner-field" hidden>
+                <label for="expense-owner">Pessoa</label>
+                <select id="expense-owner" name="owner">
+                  <option value="joao">João</option>
+                  <option value="camille">Camille</option>
+                </select>
+              </div>
               <div class="field">
                 <label for="expense-description">Descrição</label>
                 <input id="expense-description" name="description" maxlength="100" placeholder="Ex.: Compras no mercado" required>
@@ -209,9 +225,19 @@
             <h2>Converse sobre seus gastos</h2>
             <p class="statement-notice">O assessor usa os lançamentos deste navegador e envia um resumo à OpenAI a cada pergunta.</p>
           </div>
-          <div class="field advisor-period">
-            <label for="advisor-period">Período da análise</label>
-            <select id="advisor-period"></select>
+          <div class="advisor-filters">
+            <div class="field advisor-period">
+              <label for="advisor-owner">Pessoa</label>
+              <select id="advisor-owner">
+                <option value="all">João e Camille</option>
+                <option value="joao">João</option>
+                <option value="camille">Camille</option>
+              </select>
+            </div>
+            <div class="field advisor-period">
+              <label for="advisor-period">Período da análise</label>
+              <select id="advisor-period"></select>
+            </div>
           </div>
         </div>
         <p class="storage-error" id="advisor-setup" hidden>O serviço de IA ainda precisa ser configurado.</p>

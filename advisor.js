@@ -1,5 +1,6 @@
 const advisorApp = (() => {
   const get = (id) => document.getElementById(id);
+  const owner = get('advisor-owner');
   const period = get('advisor-period');
   const log = get('advisor-log');
   const prompts = get('advisor-prompts');
@@ -47,9 +48,13 @@ const advisorApp = (() => {
     clear.hidden = !messages.length;
   }
 
+  function scopedHistoryKey() {
+    return owner.value === 'all' ? historyKey : historyKey + '.' + owner.value;
+  }
+
   function loadHistory() {
     try {
-      const stored = JSON.parse(localStorage.getItem(historyKey) || '[]');
+      const stored = JSON.parse(localStorage.getItem(scopedHistoryKey()) || '[]');
       return Array.isArray(stored) ? stored.filter((entry) =>
         ['user', 'assistant'].includes(entry?.role) && typeof entry.text === 'string'
       ).slice(-historyLimit).map(({ role, text }) => ({ role, text: text.slice(0, 1400) })) : [];
@@ -60,8 +65,8 @@ const advisorApp = (() => {
 
   function saveHistory() {
     try {
-      if (messages.length) localStorage.setItem(historyKey, JSON.stringify(messages));
-      else localStorage.removeItem(historyKey);
+      if (messages.length) localStorage.setItem(scopedHistoryKey(), JSON.stringify(messages));
+      else localStorage.removeItem(scopedHistoryKey());
     } catch {
       setStatus('O histórico só pôde ser mantido nesta aba.', true);
     }
@@ -73,6 +78,19 @@ const advisorApp = (() => {
     period.replaceChildren(new Option('Todos os meses', 'all'),
       ...months.map((month) => new Option(expensesApp.formatMonth(month), month)));
     period.value = months.includes(current) ? current : 'all';
+  }
+
+  function scopedRecords() {
+    return expensesApp.readExpenses().filter((record) => owner.value === 'all' || record.owner === owner.value);
+  }
+
+  function refreshPeriods() {
+    try {
+      syncPeriods(scopedRecords());
+    } catch {
+      syncPeriods([]);
+      setStatus('Não foi possível consultar os lançamentos deste navegador.', true);
+    }
   }
 
   function addTotal(map, key, cents) {
@@ -164,7 +182,8 @@ const advisorApp = (() => {
       .slice(0, 6)
       .map(({ date, description, cents, category }) => [date, description.slice(0, 100), cents, category.slice(0, 40)]) : [];
     return {
-      scope, today, totalCents, count: selected.length, monthCount: monthly.length,
+      scope, person: owner.selectedOptions[0].textContent, today,
+      totalCents, count: selected.length, monthCount: monthly.length,
       firstMonth: monthly.at(-1)?.[0], lastMonth: monthly[0]?.[0],
       months: monthly.filter(([key]) => monthsToSend.has(key)),
       categories: topCategories(byCategory, 12),
@@ -176,6 +195,7 @@ const advisorApp = (() => {
   function setBusy(active) {
     send.disabled = active;
     input.readOnly = active;
+    owner.disabled = active;
     period.disabled = active;
     clear.disabled = active;
   }
@@ -195,6 +215,13 @@ const advisorApp = (() => {
     input.focus();
   });
 
+  owner.addEventListener('change', () => {
+    messages = loadHistory();
+    setStatus('');
+    refreshPeriods();
+    render();
+  });
+
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     if (pending || !endpoint) return;
@@ -206,7 +233,7 @@ const advisorApp = (() => {
     const previousQuestion = messages.findLast(({ role }) => role === 'user')?.text || '';
     let data;
     try {
-      const records = expensesApp.readExpenses();
+      const records = scopedRecords();
       syncPeriods(records);
       data = buildContext(records, period.value, question, previousQuestion);
     } catch {
@@ -259,12 +286,7 @@ const advisorApp = (() => {
     open() {
       if (!loaded) messages = loadHistory();
       loaded = true;
-      try {
-        syncPeriods(expensesApp.readExpenses());
-      } catch {
-        syncPeriods([]);
-        setStatus('Não foi possível consultar os lançamentos deste navegador.', true);
-      }
+      refreshPeriods();
       render();
     },
     close() {
@@ -272,6 +294,7 @@ const advisorApp = (() => {
       pending = undefined;
       messages = [];
       loaded = false;
+      owner.value = 'all';
       period.value = 'all';
       form.reset();
       setBusy(false);

@@ -123,7 +123,7 @@ const statementAssistant = (() => {
     });
   }
 
-  function showImport(turn, { added, duplicates, invalid }, skipped, signal) {
+  function showImport(turn, { added, duplicates, invalid }, skipped, signal, owner) {
     const missed = invalid + skipped;
     const summary = [
       added.length + (added.length === 1 ? ' despesa registrada.' : ' despesas registradas.'),
@@ -155,7 +155,7 @@ const statementAssistant = (() => {
         accept.addEventListener('click', async () => {
           accept.disabled = true;
           try {
-            const result = await expensesApp.importStatement([row], { force: true, signal });
+            const result = await expensesApp.importStatement([row], { owner, force: true, signal });
             if (signal.aborted) return;
             if (result.added.length !== 1) throw new Error('Despesa inválida.');
             accept.remove();
@@ -233,6 +233,7 @@ const statementAssistant = (() => {
   pasteForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     if (pasteButton.disabled) return;
+    const owner = expensesApp.getExpenseOwner();
     let parsed;
     try {
       parsed = parsePastedReply(pasteInput.value.trim());
@@ -250,10 +251,10 @@ const statementAssistant = (() => {
     pasteResults.hidden = true;
     pasteResults.replaceChildren();
     try {
-      const imported = await expensesApp.importStatement(parsed.rows, { signal });
+      const imported = await expensesApp.importStatement(parsed.rows, { owner, signal });
       if (signal.aborted) return;
       pasteResults.hidden = false;
-      showImport(pasteResults, imported, parsed.skipped, signal);
+      showImport(pasteResults, imported, parsed.skipped, signal, owner);
       if (!imported.invalid) pasteForm.reset();
       setPasteStatus('');
     } catch {
@@ -269,6 +270,7 @@ const statementAssistant = (() => {
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     if (!endpoint || pending) return;
+    const owner = expensesApp.getExpenseOwner();
     const file = fileInput.files[0];
     const text = message.value.trim();
     if (!file && !text) {
@@ -298,7 +300,7 @@ const statementAssistant = (() => {
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ file: attachment, mode, history, message: text, model: model.value, categories: expensesApp.categoryNames() }),
+        body: JSON.stringify({ file: attachment, mode, history, message: text, model: model.value, categories: expensesApp.categoryNames(owner) }),
         credentials: 'omit',
         redirect: 'error',
         signal: request.signal
@@ -315,7 +317,7 @@ const statementAssistant = (() => {
       let imported;
       if (result.status === 'parsed') {
         try {
-          imported = await expensesApp.importStatement(result.rows, { signal: request.signal });
+          imported = await expensesApp.importStatement(result.rows, { owner, signal: request.signal });
         } catch {
           throw new Error('As despesas não puderam ser salvas neste navegador. Confira o armazenamento antes de tentar novamente.');
         }
@@ -326,7 +328,7 @@ const statementAssistant = (() => {
       const answer = result.reply || (imported ? 'Leitura concluída.' : 'Confira o arquivo e tente novamente.');
       const turn = addTurn('assistant', answer);
       if (imported) {
-        showImport(turn, imported, result.skipped, conversation.signal);
+        showImport(turn, imported, result.skipped, conversation.signal, owner);
         scrollLog();
       }
       transcript = [

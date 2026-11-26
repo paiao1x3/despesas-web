@@ -85,13 +85,15 @@
 
 .app h1 { font-size: clamp(2.25rem, 5vw, 3.5rem); }
 
-.view-controls, .period-filter, .category-filter, .form-actions {
+.view-controls, .owner-filter, .period-filter, .category-filter, .form-actions {
   display: flex;
   align-items: center;
   gap: .625rem;
 }
 
-.period-filter label, .category-filter label { font-size: .875rem; }
+.view-controls { flex-wrap: wrap; justify-content: flex-end; }
+
+.owner-filter label, .period-filter label, .category-filter label { font-size: .875rem; }
 
 .app select {
   appearance: none;
@@ -333,7 +335,7 @@
 @media (max-width: 43rem) {
   .app-header-inner, .app-content { width: calc(100% - 2rem); }
   .view-header { align-items: flex-start; flex-direction: column; }
-  .view-controls { flex-wrap: wrap; }
+  .view-controls { justify-content: flex-start; }
   .dashboard-grid { grid-template-columns: minmax(0, 1fr); }
   .summary { grid-template-columns: .72fr 1.28fr; gap: .875rem 0; }
 
@@ -354,7 +356,7 @@
     padding-top: .75rem;
   }
 
-  .app-nav { grid-column: 1 / -1; grid-row: 2; }
+  .app-nav { grid-column: 1 / -1; grid-row: 2; gap: clamp(.5rem, 3vw, .875rem); }
 }
 
 @media (max-width: 23rem) {
