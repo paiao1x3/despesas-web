@@ -1,14 +1,13 @@
-const githubExpenses = (() => {
-  const sessionKey = 'despesas.github.session.v1';
+const expenseSync = (() => {
+  const sessionKey = 'despesas.session.v1';
   const endpoint = expensesEndpoint;
   let token = '';
-  let awaitingSetup = false;
 
   function setToken(value) {
     token = value;
     try {
-      if (value) sessionStorage.setItem(sessionKey, value);
-      else sessionStorage.removeItem(sessionKey);
+      if (value) localStorage.setItem(sessionKey, value);
+      else localStorage.removeItem(sessionKey);
     } catch {
       // A sessão continua disponível nesta aba se o armazenamento estiver bloqueado.
     }
@@ -16,11 +15,18 @@ const githubExpenses = (() => {
 
   if (endpoint) {
     try {
-      token = sessionStorage.getItem(sessionKey) || '';
+      token = localStorage.getItem(sessionKey) || '';
     } catch {
       // O acesso pode ser iniciado novamente pelo formulário.
     }
   }
+
+  window.addEventListener('storage', (event) => {
+    if (token && (event.key === sessionKey || event.key === null) && !event.newValue) {
+      token = '';
+      window.dispatchEvent(new Event('expenses-session-expired'));
+    }
+  });
 
   async function request(path, method, payload, signal) {
     const authenticated = path === '';
@@ -53,17 +59,7 @@ const githubExpenses = (() => {
   }
 
   return {
-    get enabled() { return Boolean(endpoint) && !awaitingSetup; },
-    get awaitingSetup() { return awaitingSetup; },
-    async initialize() {
-      if (!endpoint) return;
-      try {
-        const result = await request('/status', 'GET', undefined, AbortSignal.timeout(8000));
-        awaitingSetup = result.configured === false;
-      } catch {
-        // Uma falha de conexão preserva o modo compartilhado.
-      }
-    },
+    enabled: Boolean(endpoint),
     hasSession: () => Boolean(token),
     async login(password) {
       const result = await request('/session', 'POST', { password });

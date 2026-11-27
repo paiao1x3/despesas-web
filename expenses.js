@@ -36,7 +36,6 @@ const expensesApp = (() => {
   const recordsPeriod = get('records-period');
   const storageError = get('storage-error');
   const syncButton = get('sync-expenses');
-  const migrateButton = get('migrate-expenses');
   const exportButton = get('export-expenses');
   const importButton = get('import-expenses');
   const importFile = get('import-expenses-file');
@@ -114,7 +113,7 @@ const expensesApp = (() => {
   }
 
   function readExpenses() {
-    if (!githubExpenses.enabled) return readLocalExpenses();
+    if (!expenseSync.enabled) return readLocalExpenses();
     if (!remoteSession?.loaded) throw new Error('A base compartilhada ainda não foi carregada.');
     return expenses;
   }
@@ -141,7 +140,7 @@ const expensesApp = (() => {
   }
 
   function withExpenseWrite(update, signal) {
-    if (!githubExpenses.enabled) {
+    if (!expenseSync.enabled) {
       const task = () => {
         signal?.throwIfAborted();
         const snapshot = { records: readLocalExpenses() };
@@ -157,7 +156,7 @@ const expensesApp = (() => {
     return withRemoteTask(async (session) => {
       for (let attempt = 0; ; attempt += 1) {
         signal?.throwIfAborted();
-        const snapshot = await githubExpenses.read(session.signal);
+        const snapshot = await expenseSync.read(session.signal);
         snapshot.records = parseExpenses(snapshot.records);
         session.signal.throwIfAborted();
         signal?.throwIfAborted();
@@ -165,7 +164,7 @@ const expensesApp = (() => {
         const next = records || snapshot.records;
         if (records || importedLocalIds) {
           try {
-            await githubExpenses.write({ revision: snapshot.revision, records: next,
+            await expenseSync.write({ revision: snapshot.revision, records: next,
               importedLocalIds: importedLocalIds || snapshot.importedLocalIds }, session.signal);
           } catch (error) {
             if (error.status === 409 && attempt < 2) continue;
@@ -448,10 +447,15 @@ const expensesApp = (() => {
     const session = remoteSession;
     if (!session) return Promise.resolve(false);
     if (session.refresh) return session.refresh;
-    session.refresh = withRemoteTask(async () => {
-      const snapshot = await githubExpenses.read(session.signal);
+    const load = session.localExpenses.length ? mergeLocalExpenses(session.localExpenses).then(() => {
+      session.localExpenses = [];
+    }) : withRemoteTask(async () => {
+      const snapshot = await expenseSync.read(session.signal);
       session.signal.throwIfAborted();
       setRemoteExpenses(parseExpenses(snapshot.records));
+    });
+    session.refresh = load.then(() => {
+      session.signal.throwIfAborted();
       syncFilters(period.value, categoryFilter.value);
       render();
       return true;
@@ -471,7 +475,7 @@ const expensesApp = (() => {
       const issue = await withExpenseWrite(({ records: latest }) => {
         const existing = latest.find((expense) => expense.id === id);
         if (original && !existing) return { value: 'Este lançamento não está mais disponível.' };
-        if (githubExpenses.enabled && original && JSON.stringify(original) !== JSON.stringify(existing)) {
+        if (expenseSync.enabled && original && JSON.stringify(original) !== JSON.stringify(existing)) {
           return { value: 'Este lançamento mudou em outro aparelho. Abra-o novamente antes de fazer a alteração.' };
         }
         const next = latest.filter((expense) => expense.id !== id);
@@ -487,7 +491,7 @@ const expensesApp = (() => {
       return false;
     } catch (error) {
       if (!session?.signal.aborted) {
-        setStatus(githubExpenses.enabled ? error.message : 'Não foi possível salvar a alteração neste navegador.', true);
+        setStatus(expenseSync.enabled ? error.message : 'Não foi possível salvar a alteração neste navegador.', true);
       }
       return false;
     }
@@ -586,19 +590,19 @@ const expensesApp = (() => {
   });
   window.addEventListener('storage', (event) => {
     if (account.hidden || (event.key !== storageKey && event.key !== null)) return;
-    updateLocalBackupActions();
-    if (!githubExpenses.enabled) refreshLocal();
+    if (!expenseSync.enabled) {
+      refreshLocal();
+      exportButton.hidden = !expenses.length;
+    }
   });
 
-  function updateLocalBackupActions() {
-    let hasLocalExpenses = false;
+  function availableLocalExpenses() {
     try {
-      hasLocalExpenses = readLocalExpenses().length > 0;
+      return readLocalExpenses();
     } catch {
       // A base compartilhada pode ser usada mesmo com dados locais ilegíveis.
+      return [];
     }
-    exportButton.hidden = !hasLocalExpenses;
-    migrateButton.hidden = !githubExpenses.enabled || !hasLocalExpenses;
   }
 
   function showSyncStatus(message) {
@@ -606,34 +610,36 @@ const expensesApp = (() => {
     syncStatus.hidden = !message;
   }
 
-  async function migrateExpenses(load) {
+  function mergeLocalExpenses(source) {
+    return withExpenseWrite(({ records, importedLocalIds }) => {
+      const existing = new Set(records.map((expense) => expense.id));
+      const imported = new Set(importedLocalIds);
+      const added = [];
+      for (const expense of source) {
+        if (imported.has(expense.id)) continue;
+        imported.add(expense.id);
+        if (!existing.has(expense.id)) added.push(expense);
+      }
+      if (imported.size === importedLocalIds.length) return { value: 0 };
+      return { records: [...records, ...added], importedLocalIds: [...imported], value: added.length };
+    });
+  }
+
+  async function importBackup(load) {
     const session = remoteSession;
-    migrateButton.disabled = true;
     importButton.disabled = true;
-    showSyncStatus('Enviando lançamentos ao GitHub…');
+    showSyncStatus('Importando lançamentos…');
     try {
       const source = await load();
       session.signal.throwIfAborted();
-      const count = await withExpenseWrite(({ records, importedLocalIds }) => {
-        const existing = new Set(records.map((expense) => expense.id));
-        const imported = new Set(importedLocalIds);
-        const added = [];
-        for (const expense of source) {
-          if (imported.has(expense.id)) continue;
-          imported.add(expense.id);
-          if (!existing.has(expense.id)) added.push(expense);
-        }
-        if (imported.size === importedLocalIds.length) return { value: 0 };
-        return { records: [...records, ...added], importedLocalIds: [...imported], value: added.length };
-      });
+      const count = await mergeLocalExpenses(source);
       syncFilters(period.value, categoryFilter.value);
       render();
-      showSyncStatus(count === 0 ? 'Nenhum lançamento novo para enviar.' :
-        count === 1 ? '1 lançamento enviado ao GitHub.' : count + ' lançamentos enviados ao GitHub.');
+      showSyncStatus(count === 0 ? 'Nenhum lançamento novo para importar.' :
+        count === 1 ? '1 lançamento importado.' : count + ' lançamentos importados.');
     } catch (error) {
       if (!session.signal.aborted) showSyncStatus(error.message);
     } finally {
-      migrateButton.disabled = false;
       importButton.disabled = false;
     }
   }
@@ -647,13 +653,12 @@ const expensesApp = (() => {
     if (session === remoteSession) showSyncStatus(loaded ? 'Base atualizada.' : '');
   });
 
-  migrateButton.addEventListener('click', () => migrateExpenses(readLocalExpenses));
   importButton.addEventListener('click', () => importFile.click());
   importFile.addEventListener('change', () => {
     const file = importFile.files[0];
     importFile.value = '';
     if (!file) return;
-    migrateExpenses(async () => {
+    importBackup(async () => {
       try {
         if (file.size > 5_000_000) throw new Error();
         const backup = JSON.parse(await file.text());
@@ -804,28 +809,26 @@ const expensesApp = (() => {
       return details.join(' · ');
     },
     open() {
-      syncButton.hidden = !githubExpenses.enabled;
-      importButton.hidden = !githubExpenses.enabled;
-      if (githubExpenses.enabled) get('records-note').textContent = 'Base privada no GitHub, compartilhada entre seus dispositivos.';
-      if (githubExpenses.awaitingSetup) {
-        get('records-note').textContent = 'A conexão com o GitHub aguarda configuração. Estes lançamentos estão salvos neste navegador.';
-      }
+      syncButton.hidden = !expenseSync.enabled;
+      importButton.hidden = !expenseSync.enabled;
+      if (expenseSync.enabled) get('records-note').textContent = 'Despesas sincronizadas entre seus dispositivos.';
       activeOwner = defaultOwner;
       dashboardOwner.value = 'all';
       recordsSearch.value = '';
       recordsOwner.value = 'all';
       recordsPeriod.value = 'all';
       showView('dashboard');
-      syncFilters('', '');
+      syncFilters(expenseSync.enabled ? 'all' : '', '');
       resetForm();
-      updateLocalBackupActions();
-      if (!githubExpenses.enabled) {
+      if (!expenseSync.enabled) {
         refreshLocal();
+        exportButton.hidden = !expenses.length;
         return;
       }
       const controller = new AbortController();
       remoteSession = { controller, signal: controller.signal, queue: Promise.resolve(),
-        loaded: false, timer: setInterval(() => { if (!document.hidden) refreshRemote(); }, 30_000) };
+        loaded: false, localExpenses: availableLocalExpenses(),
+        timer: setInterval(() => { if (!document.hidden) refreshRemote(); }, 30_000) };
       storageError.textContent = 'Carregando a base compartilhada…';
       storageError.hidden = false;
       refreshRemote();

@@ -8,11 +8,11 @@
   <link rel="stylesheet" href="app.css">
   <link rel="stylesheet" href="statement.css">
   <script src="statement-config.js" defer></script>
-  <script src="github-expenses.js" defer></script>
-  <script src="expenses.js" defer></script>
+  <script src="expense-sync.js" defer></script>
+  <script src="expenses.js?v=2" defer></script>
   <script src="statement.js" defer></script>
   <script src="advisor.js" defer></script>
-  <script src="login.js" defer></script>
+  <script src="login.js?v=2" defer></script>
 </head>
 <body>
   <main class="layout" id="login-page">
@@ -224,8 +224,7 @@
       <section class="report-panel records-panel" id="records-view" aria-labelledby="view-title" hidden>
         <p class="records-note" id="records-note">Lançamentos salvos neste navegador.</p>
         <div class="record-actions storage-actions">
-          <button class="quiet-button" id="sync-expenses" type="button" hidden>Atualizar base do GitHub</button>
-          <button class="quiet-button" id="migrate-expenses" type="button" hidden>Enviar lançamentos deste navegador</button>
+          <button class="quiet-button" id="sync-expenses" type="button" hidden>Atualizar despesas</button>
           <button class="quiet-button" id="export-expenses" type="button" hidden>Baixar cópia dos dados locais</button>
           <button class="quiet-button" id="import-expenses" type="button" hidden>Importar cópia dos dados locais</button>
           <input type="file" id="import-expenses-file" accept="application/json,.json" hidden>

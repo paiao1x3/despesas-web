@@ -14,8 +14,7 @@ const submit = document.querySelector('#login-submit');
 
 function setPasswordVisibility(visible) {
   password.type = visible ? 'text' : 'password';
-  const fieldName = githubExpenses.enabled ? 'código' : 'senha';
-  passwordToggle.textContent = (visible ? 'Ocultar ' : 'Mostrar ') + fieldName;
+  passwordToggle.textContent = visible ? 'Ocultar senha' : 'Mostrar senha';
 }
 
 function showAccount(signedIn, moveFocus = false) {
@@ -48,11 +47,11 @@ form.addEventListener('submit', async (event) => {
   event.preventDefault();
   if (submit.disabled) return;
 
-  if (githubExpenses.enabled) {
+  if (expenseSync.enabled) {
     submit.disabled = true;
     error.textContent = '';
     try {
-      await githubExpenses.login(password.value);
+      await expenseSync.login(password.value);
     } catch (failure) {
       error.textContent = failure.message;
       return;
@@ -77,7 +76,7 @@ form.addEventListener('submit', async (event) => {
 });
 
 logout.addEventListener('click', () => {
-  githubExpenses.logout();
+  expenseSync.logout();
   try {
     sessionStorage.removeItem(sessionKey);
   } catch {
@@ -92,27 +91,15 @@ window.addEventListener('expenses-session-expired', () => {
   error.textContent = 'Sua sessão expirou. Entre novamente.';
 });
 
-async function initializeLogin() {
-  submit.disabled = true;
-  await githubExpenses.initialize();
-  submit.disabled = false;
-  if (githubExpenses.enabled) {
-    document.querySelector('#username-field').hidden = true;
-    username.required = false;
-    document.querySelector('#login-intro').textContent = 'Use seu código de acesso para abrir a base compartilhada.';
-    document.querySelector('#password-label').textContent = 'Código de acesso';
-    setPasswordVisibility(false);
-    showAccount(githubExpenses.hasSession());
-    return;
-  }
-  if (githubExpenses.awaitingSetup) {
-    document.querySelector('#login-intro').textContent = 'A base compartilhada aguarda configuração. Entre para consultar os dados deste navegador.';
-  }
+if (expenseSync.enabled) {
+  document.querySelector('#username-field').hidden = true;
+  username.required = false;
+  document.querySelector('#login-intro').textContent = 'Entre para acessar suas despesas em qualquer aparelho.';
+  showAccount(expenseSync.hasSession());
+} else {
   try {
     showAccount(sessionStorage.getItem(sessionKey) === demoUser);
   } catch {
     // A tela de login já fica visível por padrão.
   }
 }
-
-initializeLogin();

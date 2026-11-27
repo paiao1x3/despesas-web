@@ -21,10 +21,9 @@ jobs:
       - name: Preparar arquivos do site
         env:
           STATEMENT_ENDPOINT: ${{ vars.STATEMENT_ENDPOINT }}
-          EXPENSES_SYNC: ${{ vars.EXPENSES_SYNC }}
         run: |
           mkdir _site
-          cp index.html styles.css app.css statement.css login.js expenses.js github-expenses.js statement.js advisor.js statement-config.js _site/
+          cp index.html styles.css app.css statement.css login.js expenses.js expense-sync.js statement.js advisor.js statement-config.js _site/
           node --input-type=module <<'NODE'
           import { writeFileSync } from 'node:fs';
           let statement = '';
@@ -35,9 +34,8 @@ jobs:
               throw new Error('STATEMENT_ENDPOINT deve conter a URL HTTPS do Worker seguida de /api/statement.');
             }
             statement = url.href;
-            if (process.env.EXPENSES_SYNC === 'true') expenses = new URL('/api/expenses', url).href;
+            expenses = new URL('/api/expenses', url).href;
           }
-          if (process.env.EXPENSES_SYNC === 'true' && !expenses) throw new Error('Configure STATEMENT_ENDPOINT para ativar EXPENSES_SYNC.');
           writeFileSync('_site/statement-config.js',
             'const statementEndpoint = ' + JSON.stringify(statement) + ';\n' +
             'const expensesEndpoint = ' + JSON.stringify(expenses) + ';\n');
