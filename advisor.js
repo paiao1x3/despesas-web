@@ -89,7 +89,7 @@ const advisorApp = (() => {
       syncPeriods(scopedRecords());
     } catch {
       syncPeriods([]);
-      setStatus('Não foi possível consultar os lançamentos deste navegador.', true);
+      setStatus('Não foi possível consultar os lançamentos.', true);
     }
   }
 

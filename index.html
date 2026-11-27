@@ -7,8 +7,9 @@
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="app.css">
   <link rel="stylesheet" href="statement.css">
-  <script src="expenses.js" defer></script>
   <script src="statement-config.js" defer></script>
+  <script src="github-expenses.js" defer></script>
+  <script src="expenses.js" defer></script>
   <script src="statement.js" defer></script>
   <script src="advisor.js" defer></script>
   <script src="login.js" defer></script>
@@ -35,22 +36,22 @@
     <div class="content-panel">
       <section class="content" id="login" aria-labelledby="login-title">
         <h1 id="login-title" tabindex="-1">Entrar</h1>
-        <p class="intro">Informe seu usuário e senha para acessar o sistema.</p>
+        <p class="intro" id="login-intro">Informe seu usuário e senha para acessar o sistema.</p>
 
         <form id="login-form" method="post">
-          <div class="field">
+          <div class="field" id="username-field">
             <label for="username">Usuário</label>
             <input id="username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required>
           </div>
           <div class="field">
-            <label for="password">Senha</label>
+            <label for="password" id="password-label">Senha</label>
             <div class="password-field">
               <input id="password" name="password" type="password" autocomplete="current-password" required>
               <button class="password-toggle" id="password-toggle" type="button" aria-controls="password">Mostrar senha</button>
             </div>
           </div>
           <p class="error" id="login-error" role="alert"></p>
-          <button class="primary-button" type="submit">Entrar</button>
+          <button class="primary-button" id="login-submit" type="submit">Entrar</button>
         </form>
       </section>
     </div>
@@ -221,7 +222,15 @@
         </div>
       </section>
       <section class="report-panel records-panel" id="records-view" aria-labelledby="view-title" hidden>
-        <p class="records-note">Lançamentos salvos neste navegador.</p>
+        <p class="records-note" id="records-note">Lançamentos salvos neste navegador.</p>
+        <div class="record-actions storage-actions">
+          <button class="quiet-button" id="sync-expenses" type="button" hidden>Atualizar base do GitHub</button>
+          <button class="quiet-button" id="migrate-expenses" type="button" hidden>Enviar lançamentos deste navegador</button>
+          <button class="quiet-button" id="export-expenses" type="button" hidden>Baixar cópia dos dados locais</button>
+          <button class="quiet-button" id="import-expenses" type="button" hidden>Importar cópia dos dados locais</button>
+          <input type="file" id="import-expenses-file" accept="application/json,.json" hidden>
+        </div>
+        <p class="records-note" id="sync-status" role="status" hidden></p>
         <div class="records-filters">
           <div class="field records-search">
             <label for="records-search">Buscar por descrição ou categoria</label>

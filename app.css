@@ -333,6 +333,16 @@
   color: var(--muted);
 }
 
+.storage-actions {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  margin: 0 0 1rem;
+  gap: .5rem;
+}
+
+.storage-actions:not(:has(button:not([hidden]))) { display: none; }
+.storage-actions button { background: #edf4ee; }
+
 .records-filters {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 12rem) minmax(0, 13rem);

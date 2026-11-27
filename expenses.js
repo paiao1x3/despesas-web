@@ -35,6 +35,12 @@ const expensesApp = (() => {
   const recordsOwner = get('records-owner');
   const recordsPeriod = get('records-period');
   const storageError = get('storage-error');
+  const syncButton = get('sync-expenses');
+  const migrateButton = get('migrate-expenses');
+  const exportButton = get('export-expenses');
+  const importButton = get('import-expenses');
+  const importFile = get('import-expenses-file');
+  const syncStatus = get('sync-status');
   const categoryFilter = get('category-filter');
   const expenseForm = get('expense-form');
   const expenseOwnerField = get('expense-owner-field');
@@ -52,7 +58,9 @@ const expensesApp = (() => {
 
   let expenses = [];
   let activeOwner = defaultOwner;
-  let editingId = null;
+  let editingExpense = null;
+  let draftId = null;
+  let remoteSession;
 
   function localDate() {
     const today = new Date();
@@ -82,9 +90,7 @@ const expensesApp = (() => {
     return cents > 0 && cents <= maxCents ? cents : 0;
   }
 
-  function readExpenses() {
-    const stored = localStorage.getItem(storageKey);
-    const records = stored === null ? [] : JSON.parse(stored);
+  function parseExpenses(records) {
     if (!Array.isArray(records) || records.some((record) =>
       !record || typeof record.id !== 'string' || typeof record.description !== 'string' ||
       typeof record.category !== 'string' || !validDate(record.date) ||
@@ -102,12 +108,75 @@ const expensesApp = (() => {
     });
   }
 
+  function readLocalExpenses() {
+    const stored = localStorage.getItem(storageKey);
+    return parseExpenses(stored === null ? [] : JSON.parse(stored));
+  }
+
+  function readExpenses() {
+    if (!githubExpenses.enabled) return readLocalExpenses();
+    if (!remoteSession?.loaded) throw new Error('A base compartilhada ainda não foi carregada.');
+    return expenses;
+  }
+
   function expenseId() {
     return crypto.randomUUID?.() || Array.from(crypto.getRandomValues(new Uint32Array(4))).join('-');
   }
 
-  function withExpenseWrite(task) {
-    return navigator.locks ? navigator.locks.request(storageKey, task) : Promise.resolve().then(task);
+  function withRemoteTask(task) {
+    const session = remoteSession;
+    if (!session) return Promise.reject(new Error('Entre novamente para acessar a base compartilhada.'));
+    const result = session.queue.then(() => {
+      session.signal.throwIfAborted();
+      return task(session);
+    });
+    session.queue = result.catch(() => {});
+    return result;
+  }
+
+  function setRemoteExpenses(records) {
+    expenses = records;
+    remoteSession.loaded = true;
+    storageError.hidden = true;
+  }
+
+  function withExpenseWrite(update, signal) {
+    if (!githubExpenses.enabled) {
+      const task = () => {
+        signal?.throwIfAborted();
+        const snapshot = { records: readLocalExpenses() };
+        const { records, value } = update(snapshot);
+        if (records) localStorage.setItem(storageKey, JSON.stringify(records));
+        expenses = records || snapshot.records;
+        exportButton.hidden = !expenses.length;
+        storageError.hidden = true;
+        return value;
+      };
+      return navigator.locks ? navigator.locks.request(storageKey, task) : Promise.resolve().then(task);
+    }
+    return withRemoteTask(async (session) => {
+      for (let attempt = 0; ; attempt += 1) {
+        signal?.throwIfAborted();
+        const snapshot = await githubExpenses.read(session.signal);
+        snapshot.records = parseExpenses(snapshot.records);
+        session.signal.throwIfAborted();
+        signal?.throwIfAborted();
+        const { records, importedLocalIds, value } = update(snapshot);
+        const next = records || snapshot.records;
+        if (records || importedLocalIds) {
+          try {
+            await githubExpenses.write({ revision: snapshot.revision, records: next,
+              importedLocalIds: importedLocalIds || snapshot.importedLocalIds }, session.signal);
+          } catch (error) {
+            if (error.status === 409 && attempt < 2) continue;
+            throw error;
+          }
+        }
+        session.signal.throwIfAborted();
+        setRemoteExpenses(next);
+        return value;
+      }
+    });
   }
 
   function showView(view, moveFocus = false) {
@@ -332,7 +401,8 @@ const expensesApp = (() => {
   }
 
   function resetForm() {
-    editingId = null;
+    editingExpense = null;
+    draftId = null;
     expenseForm.reset();
     expenseOwner.value = activeOwner;
     expenseOwnerField.hidden = true;
@@ -346,7 +416,7 @@ const expensesApp = (() => {
   }
 
   function editExpense(expense) {
-    editingId = expense.id;
+    editingExpense = expense;
     expenseOwner.value = expense.owner;
     expenseOwnerField.hidden = false;
     description.value = expense.description;
@@ -362,50 +432,74 @@ const expensesApp = (() => {
     description.focus();
   }
 
-  function refresh(selectedPeriod = period.value, selectedCategory = categoryFilter.value) {
+  function refreshLocal() {
     try {
-      expenses = readExpenses();
+      expenses = readLocalExpenses();
       storageError.hidden = true;
     } catch {
       storageError.textContent = 'Não foi possível carregar as despesas armazenadas neste navegador.';
       storageError.hidden = false;
     }
-    syncFilters(selectedPeriod, selectedCategory);
+    syncFilters(period.value, categoryFilter.value);
     render();
   }
 
-  async function writeChanges(id, update, mustExist) {
+  function refreshRemote() {
+    const session = remoteSession;
+    if (!session) return Promise.resolve(false);
+    if (session.refresh) return session.refresh;
+    session.refresh = withRemoteTask(async () => {
+      const snapshot = await githubExpenses.read(session.signal);
+      session.signal.throwIfAborted();
+      setRemoteExpenses(parseExpenses(snapshot.records));
+      syncFilters(period.value, categoryFilter.value);
+      render();
+      return true;
+    }).catch((error) => {
+      if (!session.signal.aborted) {
+        storageError.textContent = error.message;
+        storageError.hidden = false;
+      }
+      return false;
+    }).finally(() => { session.refresh = null; });
+    return session.refresh;
+  }
+
+  async function writeChanges(id, update, original) {
+    const session = remoteSession;
     try {
-      return await withExpenseWrite(() => {
-        const latest = readExpenses();
+      const issue = await withExpenseWrite(({ records: latest }) => {
         const existing = latest.find((expense) => expense.id === id);
-        if (mustExist && !existing) {
-          expenses = latest;
-          syncFilters(period.value, categoryFilter.value);
-          render();
-          setStatus('Este lançamento não está mais disponível.', true);
-          return false;
+        if (original && !existing) return { value: 'Este lançamento não está mais disponível.' };
+        if (githubExpenses.enabled && original && JSON.stringify(original) !== JSON.stringify(existing)) {
+          return { value: 'Este lançamento mudou em outro aparelho. Abra-o novamente antes de fazer a alteração.' };
         }
         const next = latest.filter((expense) => expense.id !== id);
         if (update) next.push({ ...existing, ...update, createdAt: existing?.createdAt ?? Date.now() });
-        localStorage.setItem(storageKey, JSON.stringify(next));
-        expenses = next;
-        storageError.hidden = true;
-        return true;
+        return { records: next };
       });
-    } catch {
-      setStatus('Não foi possível salvar a alteração neste navegador.', true);
+      if (session?.signal.aborted) return false;
+      if (!issue) return true;
+      if (editingExpense?.id === id) resetForm();
+      syncFilters(period.value, categoryFilter.value);
+      render();
+      setStatus(issue, true);
+      return false;
+    } catch (error) {
+      if (!session?.signal.aborted) {
+        setStatus(githubExpenses.enabled ? error.message : 'Não foi possível salvar a alteração neste navegador.', true);
+      }
       return false;
     }
   }
 
   async function deleteExpense(expense) {
     if (!window.confirm('Excluir a despesa “' + expense.description + '”?')) return;
-    if (!await writeChanges(expense.id, null, true)) return;
+    if (!await writeChanges(expense.id, null, expense)) return;
     syncFilters(period.value, categoryFilter.value);
     render();
     if (activeOwner === expense.owner && !views.expenses.panel.hidden) {
-      if (editingId === expense.id) resetForm();
+      if (editingExpense?.id === expense.id) resetForm();
       setStatus('Despesa excluída.');
       get('expense-list-title').focus();
     }
@@ -417,7 +511,7 @@ const expensesApp = (() => {
     const label = description.value.trim();
     const cents = toCents(amount.value);
     const sourceOwner = activeOwner;
-    const owner = editingId ? expenseOwner.value : sourceOwner;
+    const owner = editingExpense ? expenseOwner.value : sourceOwner;
 
     if (!label) {
       setStatus('Informe uma descrição para a despesa.', true);
@@ -447,13 +541,13 @@ const expensesApp = (() => {
         || customName;
     }
 
-    const id = editingId || expenseId();
+    const id = editingExpense?.id || (draftId ??= expenseId());
     const updated = { id, description: label, category: name, date: date.value, cents, owner, ownerConfirmed: true };
     const moved = owner !== sourceOwner;
     const message = moved ? 'Despesa movida para ' + people[owner] + '.'
-      : editingId ? 'Despesa atualizada.' : 'Despesa registrada.';
+      : editingExpense ? 'Despesa atualizada.' : 'Despesa registrada.';
     saveButton.disabled = true;
-    const saved = await writeChanges(id, updated, Boolean(editingId));
+    const saved = await writeChanges(id, updated, editingExpense);
     saveButton.disabled = false;
     if (!saved) return;
     if (activeOwner !== sourceOwner) {
@@ -491,7 +585,104 @@ const expensesApp = (() => {
     description.focus();
   });
   window.addEventListener('storage', (event) => {
-    if (!account.hidden && (event.key === storageKey || event.key === null)) refresh();
+    if (account.hidden || (event.key !== storageKey && event.key !== null)) return;
+    updateLocalBackupActions();
+    if (!githubExpenses.enabled) refreshLocal();
+  });
+
+  function updateLocalBackupActions() {
+    let hasLocalExpenses = false;
+    try {
+      hasLocalExpenses = readLocalExpenses().length > 0;
+    } catch {
+      // A base compartilhada pode ser usada mesmo com dados locais ilegíveis.
+    }
+    exportButton.hidden = !hasLocalExpenses;
+    migrateButton.hidden = !githubExpenses.enabled || !hasLocalExpenses;
+  }
+
+  function showSyncStatus(message) {
+    syncStatus.textContent = message;
+    syncStatus.hidden = !message;
+  }
+
+  async function migrateExpenses(load) {
+    const session = remoteSession;
+    migrateButton.disabled = true;
+    importButton.disabled = true;
+    showSyncStatus('Enviando lançamentos ao GitHub…');
+    try {
+      const source = await load();
+      session.signal.throwIfAborted();
+      const count = await withExpenseWrite(({ records, importedLocalIds }) => {
+        const existing = new Set(records.map((expense) => expense.id));
+        const imported = new Set(importedLocalIds);
+        const added = [];
+        for (const expense of source) {
+          if (imported.has(expense.id)) continue;
+          imported.add(expense.id);
+          if (!existing.has(expense.id)) added.push(expense);
+        }
+        if (imported.size === importedLocalIds.length) return { value: 0 };
+        return { records: [...records, ...added], importedLocalIds: [...imported], value: added.length };
+      });
+      syncFilters(period.value, categoryFilter.value);
+      render();
+      showSyncStatus(count === 0 ? 'Nenhum lançamento novo para enviar.' :
+        count === 1 ? '1 lançamento enviado ao GitHub.' : count + ' lançamentos enviados ao GitHub.');
+    } catch (error) {
+      if (!session.signal.aborted) showSyncStatus(error.message);
+    } finally {
+      migrateButton.disabled = false;
+      importButton.disabled = false;
+    }
+  }
+
+  syncButton.addEventListener('click', async () => {
+    const session = remoteSession;
+    syncButton.disabled = true;
+    showSyncStatus('Atualizando a base…');
+    const loaded = await refreshRemote();
+    syncButton.disabled = false;
+    if (session === remoteSession) showSyncStatus(loaded ? 'Base atualizada.' : '');
+  });
+
+  migrateButton.addEventListener('click', () => migrateExpenses(readLocalExpenses));
+  importButton.addEventListener('click', () => importFile.click());
+  importFile.addEventListener('change', () => {
+    const file = importFile.files[0];
+    importFile.value = '';
+    if (!file) return;
+    migrateExpenses(async () => {
+      try {
+        if (file.size > 5_000_000) throw new Error();
+        const backup = JSON.parse(await file.text());
+        if (backup.schema !== 1) throw new Error();
+        return parseExpenses(backup.records);
+      } catch {
+        throw new Error('Escolha um arquivo de cópia dos dados locais baixado no site Despesas.');
+      }
+    });
+  });
+
+  exportButton.addEventListener('click', () => {
+    try {
+      const backup = JSON.stringify({ schema: 1, records: readLocalExpenses() });
+      const url = URL.createObjectURL(new Blob([backup], { type: 'application/json' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'despesas-backup.json';
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch {
+      showSyncStatus('Não foi possível baixar os dados deste navegador.');
+    }
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && remoteSession) refreshRemote();
   });
 
   function normalizedWords(text) {
@@ -547,9 +738,7 @@ const expensesApp = (() => {
   async function importStatement(rows, { owner = activeOwner, force = false, signal, documentType } = {}) {
     if (!Array.isArray(rows) || rows.length > 60) throw new Error('A leitura devolveu uma lista inválida.');
     if (!Object.hasOwn(people, owner)) throw new Error('Pessoa inválida para a importação.');
-    const result = await withExpenseWrite(() => {
-      if (signal?.aborted) throw signal.reason;
-      const latest = readExpenses();
+    const result = await withExpenseWrite(({ records: latest }) => {
       const personal = latest.filter((expense) => expense.owner === owner);
       const categories = [...defaultCategories, ...personal.map((expense) => expense.category)];
       const added = [];
@@ -586,11 +775,9 @@ const expensesApp = (() => {
         added.push({ ...candidate, owner, ownerConfirmed: true, id: expenseId(), createdAt: Date.now(),
           statementSource: { date, cents, description, reference } });
       }
-      const next = [...latest, ...added];
-      if (added.length) localStorage.setItem(storageKey, JSON.stringify(next));
-      expenses = next;
-      return { added, duplicates, invalid, excluded };
-    });
+      return { records: added.length ? [...latest, ...added] : undefined,
+        value: { added, duplicates, invalid, excluded } };
+    }, signal);
     storageError.hidden = true;
     const { added } = result;
     const months = new Set(added.map((expense) => expense.date.slice(0, 7)));
@@ -617,14 +804,44 @@ const expensesApp = (() => {
       return details.join(' · ');
     },
     open() {
+      syncButton.hidden = !githubExpenses.enabled;
+      importButton.hidden = !githubExpenses.enabled;
+      if (githubExpenses.enabled) get('records-note').textContent = 'Base privada no GitHub, compartilhada entre seus dispositivos.';
+      if (githubExpenses.awaitingSetup) {
+        get('records-note').textContent = 'A conexão com o GitHub aguarda configuração. Estes lançamentos estão salvos neste navegador.';
+      }
       activeOwner = defaultOwner;
       dashboardOwner.value = 'all';
       recordsSearch.value = '';
       recordsOwner.value = 'all';
       recordsPeriod.value = 'all';
       showView('dashboard');
-      refresh('', '');
+      syncFilters('', '');
       resetForm();
+      updateLocalBackupActions();
+      if (!githubExpenses.enabled) {
+        refreshLocal();
+        return;
+      }
+      const controller = new AbortController();
+      remoteSession = { controller, signal: controller.signal, queue: Promise.resolve(),
+        loaded: false, timer: setInterval(() => { if (!document.hidden) refreshRemote(); }, 30_000) };
+      storageError.textContent = 'Carregando a base compartilhada…';
+      storageError.hidden = false;
+      refreshRemote();
+    },
+    close() {
+      if (!remoteSession) return;
+      remoteSession.controller.abort();
+      clearInterval(remoteSession.timer);
+      remoteSession = null;
+      expenses = [];
+      storageError.hidden = true;
+      showSyncStatus('');
+      resetForm();
+      syncFilters('', '');
+      render();
+      renderRecords();
     }
   };
 })();
